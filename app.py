@@ -21,17 +21,34 @@ PRODUCTS_CONFIG = {
             }
         }
     },
-    "LingoAI": {
-        "image": "https://via.placeholder.com/300/4A90E2/FFFFFF?text=LingoAI",
-        "description": "语言学习工具",
-        "accounts": {
-            "TikTok": {
-                "username": "charlidamelio",
-                "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
-                "param_name": "unique_id"
-            }
-        }
-    }
+    # ============================================
+    # ⏸️ LingoAI 已暂时注释（等以后添加账号再启用）
+    # ============================================
+    # "LingoAI": {
+    #     "image": "https://via.placeholder.com/300/4A90E2/FFFFFF?text=LingoAI",
+    #     "description": "语言学习工具",
+    #     "accounts": {
+    #         "TikTok": {
+    #             "username": "你们的 lingoai 账号",
+    #             "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
+    #             "param_name": "unique_id"
+    #         }
+    #     }
+    # },
+    # ============================================
+    # 💡 添加新产品示例：
+    # ============================================
+    # "新产品名称": {
+    #     "image": "图片 URL",
+    #     "description": "产品描述",
+    #     "accounts": {
+    #         "TikTok": {
+    #             "username": "tiktok 账号名",
+    #             "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
+    #             "param_name": "unique_id"
+    #         }
+    #     }
+    # }
 }
 
 # ============================================
