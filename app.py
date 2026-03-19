@@ -1,4 +1,4 @@
-# 🎯 多产品社媒监控系统 - TikTok 完整版（无 plotly 依赖）
+# 🎯 多产品社媒监控系统 - TikTok 完整版（修复版）
 import streamlit as st
 import requests
 import pandas as pd
@@ -20,35 +20,7 @@ PRODUCTS_CONFIG = {
                 "param_name": "unique_id"
             }
         }
-    },
-    # ============================================
-    # ⏸️ LingoAI 已暂时注释（等以后添加账号再启用）
-    # ============================================
-    # "LingoAI": {
-    #     "image": "https://via.placeholder.com/300/4A90E2/FFFFFF?text=LingoAI",
-    #     "description": "语言学习工具",
-    #     "accounts": {
-    #         "TikTok": {
-    #             "username": "你们的 lingoai 账号",
-    #             "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
-    #             "param_name": "unique_id"
-    #         }
-    #     }
-    # },
-    # ============================================
-    # 💡 添加新产品示例：
-    # ============================================
-    # "新产品名称": {
-    #     "image": "图片 URL",
-    #     "description": "产品描述",
-    #     "accounts": {
-    #         "TikTok": {
-    #             "username": "tiktok 账号名",
-    #             "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
-    #             "param_name": "unique_id"
-    #         }
-    #     }
-    # }
+    }
 }
 
 # ============================================
@@ -134,6 +106,16 @@ def render_home_page():
 # ============================================
 def render_product_page():
     product_name = st.session_state.selected_product
+    
+    # ✅ 关键修复：验证产品是否存在
+    if not product_name or product_name not in PRODUCTS_CONFIG:
+        st.warning("⚠️ 产品不存在或已删除")
+        if st.button("← 返回首页"):
+            st.session_state.current_page = "home"
+            st.session_state.selected_product = None
+            st.rerun()
+        return
+    
     config = PRODUCTS_CONFIG[product_name]
     
     # 返回按钮
@@ -192,11 +174,10 @@ def render_product_page():
                     # 主页链接
                     st.markdown(f"**🔗 [访问 TikTok 主页](https://tiktok.com/@{username})**")
                     
-                    # 粉丝分布饼图（用 Streamlit 内置）
+                    # 粉丝分布
                     st.divider()
                     st.subheader("📈 粉丝分布")
                     
-                    # 创建饼图数据
                     pie_data = pd.DataFrame({
                         "平台": ["TikTok", "其他平台"],
                         "粉丝数": [platform_data['TikTok']['followers'], 0]
@@ -204,11 +185,10 @@ def render_product_page():
                     st.write("💡 待补充其他平台数据后显示完整分布")
                     st.dataframe(pie_data, use_container_width=True, hide_index=True)
                     
-                    # 视频数据柱状图（用 Streamlit 内置）
+                    # 视频数据柱状图
                     st.divider()
                     st.subheader("📊 视频表现")
                     
-                    # 统计每个视频的播放量
                     video_stats = []
                     for i, video in enumerate(video_list[:10]):
                         stats = video.get("statistics", {})
@@ -220,8 +200,6 @@ def render_product_page():
                     
                     df = pd.DataFrame(video_stats)
                     st.bar_chart(df.set_index('视频')['播放量'], use_container_width=True)
-                    
-                    # 点赞数图表
                     st.bar_chart(df.set_index('视频')['点赞数'], use_container_width=True)
                     
                     # 视频封面墙
@@ -229,27 +207,22 @@ def render_product_page():
                     st.subheader("🎬 视频列表")
                     
                     video_cols = st.columns(3)
-                    for idx, video in enumerate(video_list[:9]):  # 显示前 9 个
+                    for idx, video in enumerate(video_list[:9]):
                         with video_cols[idx % 3]:
-                            # 视频封面
                             cover_url = video.get("video", {}).get("cover", {}).get("url_list", [""])[0]
                             if cover_url:
                                 st.image(cover_url, use_container_width=True)
                             
-                            # 视频描述
                             desc = video.get("desc", "无描述")[:50] + "..."
                             st.caption(desc)
                             
-                            # 统计数据
                             stats = video.get("statistics", {})
                             st.write(f"👁 {stats.get('play_count', 0):,} | ❤ {stats.get('digg_count', 0):,}")
                             
-                            # 跳转链接
                             share_url = video.get("share_url", "")
                             if share_url:
                                 st.markdown(f"[观看视频]({share_url})")
                     
-                    # 加载更多按钮
                     if len(video_list) > 9:
                         if st.button(f"查看更多（共{len(video_list)}个视频）"):
                             st.info("显示全部视频功能开发中...")
@@ -268,6 +241,12 @@ def render_product_page():
 # ============================================
 def main():
     api_key = get_api_key()
+    
+    # ✅ 关键修复：验证页面状态
+    if st.session_state.current_page == "product":
+        if st.session_state.selected_product not in PRODUCTS_CONFIG:
+            st.session_state.current_page = "home"
+            st.session_state.selected_product = None
     
     if st.session_state.current_page == "home":
         render_home_page()
