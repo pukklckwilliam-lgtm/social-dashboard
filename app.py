@@ -1,236 +1,250 @@
-# 🎵 TikTok账号数据监控看板 - TikHub版
+# 🎯 社媒数据监控看板 - Post Bridge 版本
+# 支持：已连接的 TikTok 账号数据分析
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
-import json
 
-st.set_page_config(page_title="🎵 TikTok账号数据监控看板", layout="wide", page_icon="🎵")
+st.set_page_config(page_title="📊 Post Bridge 数据看板", layout="wide", page_icon="🌉")
 
 # ============================================
 # 🔑 API Key 管理
 # ============================================
 def get_api_key():
-    if "tikhub_api_key" in st.secrets:
-        return st.secrets["tikhub_api_key"]
+    if "postbridge_api_key" in st.secrets:
+        return st.secrets["postbridge_api_key"]
     
     with st.sidebar:
-        api_key = st.text_input("🔑 TikHub API Key", type="password", 
-                               help="在TikHub后台获取API Key")
+        api_key = st.text_input("Post Bridge API Key", type="password", 
+                               help="格式：pb_live_xxxxxxxxxx")
         if api_key:
             st.session_state["api_key"] = api_key
     
     return st.session_state.get("api_key", None)
 
 # ============================================
-# 📡 TikHub数据抓取函数
+# 📡 Post Bridge API 请求
 # ============================================
-def fetch_tiktok_videos(api_key, username, count=10):
-    """从TikHub获取TikTok视频数据"""
-    url = "https://api.tikhub.io/api/v1/tiktok/app/v3/fetch_user_post_videos_v3"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    params = {
-        "unique_id": username,
-        "count": count
-    }
+def fetch_connected_accounts(api_key):
+    """获取已连接的社交账号列表"""
+    url = "https://api.post-bridge.com/v1/social-accounts"
+    headers = {"Authorization": f"Bearer {api_key}"}
     
     try:
-        response = requests.get(url, params=params, headers=headers, timeout=30)
-        
+        response = requests.get(url, headers=headers, timeout=30)
         if response.status_code == 200:
-            result = response.json()
-            if result.get('code') == 200:
-                return {"success": True, "data": result}
-            else:
-                return {"success": False, "error": result.get('message', 'API返回错误')}
-        else:
-            return {"success": False, "error": f"HTTP {response.status_code}"}
+            return response.json()
+        return {"error": f"HTTP {response.status_code}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"error": str(e)}
 
-# ============================================
-# 📊 数据解析函数
-# ============================================
-def parse_tiktok_data(result, username):
-    """解析TikTok视频数据"""
-    if 'data' not in result or 'aweme_list' not in result['data']:
-        return [], {}
+def fetch_account_analytics(api_key, account_id):
+    """获取账号分析数据"""
+    url = "https://api.post-bridge.com/v1/analytics"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    params = {"account_id": account_id}
     
-    video_list = result['data']['aweme_list']
-    rows = []
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        if response.status_code == 200:
+            return response.json()
+        return {"error": f"HTTP {response.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def fetch_account_posts(api_key, account_id, limit=10):
+    """获取账号帖子/视频列表"""
+    url = "https://api.post-bridge.com/v1/posts"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    params = {"account_id": account_id, "limit": limit}
     
-    # 统计总数
-    total_stats = {'play': 0, 'like': 0, 'comment': 0, 'share': 0}
-    
-    # 获取账号信息（从第一个视频）
-    account_info = {}
-    if video_list and 'author' in video_list[0]:
-        author = video_list[0]['author']
-        account_info = {
-            'nickname': author.get('nickname', username),
-            'unique_id': author.get('unique_id', username),
-            'avatar': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
-            'signature': author.get('signature', ''),
-            'total_favorited': author.get('total_favorited', 0)
-        }
-    
-    for video in video_list:
-        stats = video.get('statistics', {})
-        author = video.get('author', {})
-        
-        # 时间转换
-        create_time = video.get('create_time', 0)
-        if create_time:
-            date_str = datetime.fromtimestamp(create_time).strftime('%Y-%m-%d %H:%M')
-        else:
-            date_str = 'N/A'
-        
-        # 提取统计数据
-        play_count = stats.get('play_count', 0)
-        digg_count = stats.get('digg_count', 0)
-        comment_count = stats.get('comment_count', 0)
-        share_count = stats.get('share_count', 0)
-        
-        # 累加总数
-        total_stats['play'] += play_count
-        total_stats['like'] += digg_count
-        total_stats['comment'] += comment_count
-        total_stats['share'] += share_count
-        
-        rows.append({
-            '发布时间': date_str,
-            '视频描述': (video.get('desc', '')[:50] + '...') if video.get('desc') else '无描述',
-            '播放量': play_count,
-            '点赞数': digg_count,
-            '评论数': comment_count,
-            '分享数': share_count,
-            '视频链接': video.get('share_url', '')
-        })
-    
-    return rows, total_stats, account_info
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        if response.status_code == 200:
+            return response.json()
+        return {"error": f"HTTP {response.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ============================================
 # 🎨 主界面
 # ============================================
 def main():
-    st.title("🎵 TikTok账号数据监控看板")
-    st.markdown("*专门用于监控TikTok账号数据*")
+    st.title("🌉 Post Bridge 社媒数据看板")
+    st.markdown("*仅显示已在 Post Bridge 后台连接的自有账号*")
     
-    # 获取API Key
+    # 1. 获取 API Key
     api_key = get_api_key()
     
     if not api_key:
-        st.warning("⚠️ **请先配置API Key！**\n\n在左侧侧边栏输入你的TikHub API Key")
+        st.warning("⚠️ 请先在侧边栏输入 Post Bridge API Key")
+        st.stop()
+    
+    if not api_key.startswith("pb_live_"):
+        st.error("❌ API Key 格式不正确，应以 pb_live_ 开头")
         st.stop()
     
     # 侧边栏配置
     with st.sidebar:
-        st.header("⚙️ 配置")
-        username = st.text_input("TikTok用户名", placeholder="例如：photorevive.ai", value="photorevive.ai")
-        count = st.slider("抓取数量", min_value=1, max_value=30, value=10)
-        
-        if st.button("🚀 获取数据", type="primary", use_container_width=True):
-            st.session_state['fetch_data'] = True
+        st.header("⚙️ 设置")
+        if st.button("🔄 刷新账号列表", use_container_width=True):
+            st.session_state["refresh"] = True
     
-    # 抓取数据
-    if st.session_state.get('fetch_data', False):
-        st.session_state['fetch_data'] = False
+    # 2. 获取已连接账号
+    with st.spinner("正在获取已连接账号..."):
+        accounts_result = fetch_connected_accounts(api_key)
+    
+    if "error" in accounts_result:
+        st.error(f"❌ 获取账号列表失败：{accounts_result['error']}")
+        st.info("💡 请检查：1) API Key 是否正确 2) 是否在 Post Bridge 后台连接了 TikTok 账号")
+        st.stop()
+    
+    # 解析账号列表
+    # 注意：Post Bridge 返回的数据结构是 {"data": [...], "meta": {...}}
+    accounts_data = accounts_result.get("data", [])
+    meta = accounts_result.get("meta", {})
+    
+    if not accounts_data:
+        st.warning("⚠️ 未找到已连接的账号")
+        st.markdown("""
+        ### 📌 如何连接账号：
+        1. 登录 [Post Bridge Dashboard](https://post-bridge.com)
+        2. 点击 **Connect Account**
+        3. 授权你的 TikTok 账号
+        4. 刷新此页面
+        """)
+        st.stop()
+    
+    # 筛选 TikTok 账号
+    tiktok_accounts = [acc for acc in accounts_data if acc.get("platform", "").lower() == "tiktok"]
+    
+    if not tiktok_accounts:
+        st.warning("⚠️ 未找到已连接的 TikTok 账号")
+        st.info("💡 请在 Post Bridge 后台连接至少一个 TikTok 账号")
+        st.stop()
+    
+    # 3. 账号选择器
+    st.subheader("📱 选择账号")
+    account_options = {f"@{acc.get('username', 'Unknown')}": acc for acc in tiktok_accounts}
+    selected_name = st.selectbox("选择 TikTok 账号", list(account_options.keys()))
+    selected_account = account_options[selected_name]
+    account_id = selected_account.get("id")
+    
+    st.info(f"**当前账号：** {selected_name} | **ID:** `{account_id}`")
+    
+    # 4. 获取数据按钮
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📊 刷新分析数据", use_container_width=True, type="primary"):
+            st.session_state['load_analytics'] = True
+    with col2:
+        if st.button("🎬 刷新视频列表", use_container_width=True, type="primary"):
+            st.session_state['load_posts'] = True
+    
+    # ========================================
+    # 显示分析数据
+    # ========================================
+    if st.session_state.get("load_analytics", False) or "analytics_data" not in st.session_state:
+        st.session_state['load_analytics'] = False
+        with st.spinner("正在获取分析数据..."):
+            analytics_result = fetch_account_analytics(api_key, account_id)
+            st.session_state['analytics_data'] = analytics_result
         
-        if not username:
-            st.error("❌ 请输入用户名")
-            st.stop()
-        
-        with st.spinner(f'正在抓取 @{username} 的数据...'):
-            result = fetch_tiktok_videos(api_key, username, count)
+        if "error" in st.session_state['analytics_data']:
+            st.error(f"❌ 分析数据获取失败：{st.session_state['analytics_data']['error']}")
+        else:
+            st.subheader("📈 账号核心指标")
             
-            if not result['success']:
-                st.error(f"❌ {result['error']}")
-                if 'details' in result:
-                    st.text(result['details'])
+            # Post Bridge 返回的数据结构可能不同，需要灵活处理
+            data = st.session_state['analytics_data'].get("data", {})
+            
+            if isinstance(data, dict):
+                # 尝试显示常见指标
+                cols = st.columns(4)
+                metrics = [
+                    ("粉丝数", data.get("followers", data.get("follower_count", "N/A"))),
+                    ("关注数", data.get("following", data.get("following_count", "N/A"))),
+                    ("点赞数", data.get("likes", data.get("total_likes", "N/A"))),
+                    ("视频数", data.get("videos", data.get("video_count", "N/A")))
+                ]
+                
+                for i, (label, value) in enumerate(metrics):
+                    with cols[i % 4]:
+                        if isinstance(value, int):
+                            st.metric(label, f"{value:,}")
+                        else:
+                            st.metric(label, value)
             else:
-                st.success("✅ 数据获取成功！")
+                # 如果结构不对，显示原始数据
+                st.write("**原始数据：**")
+                st.json(data)
+    
+    # ========================================
+    # 显示视频列表
+    # ========================================
+    if st.session_state.get("load_posts", False) or "posts_data" not in st.session_state:
+        st.session_state['load_posts'] = False
+        with st.spinner("正在获取视频列表..."):
+            posts_result = fetch_account_posts(api_key, account_id)
+            st.session_state['posts_data'] = posts_result
+        
+        if "error" in st.session_state['posts_data']:
+            st.error(f"❌ 视频列表获取失败：{st.session_state['posts_data']['error']}")
+            st.info("💡 Post Bridge 可能需要不同的端点来获取帖子列表，请查阅文档。")
+        else:
+            st.subheader("🎬 最近视频")
+            
+            # Post Bridge 返回的数据结构
+            posts = st.session_state['posts_data'].get("data", [])
+            
+            if isinstance(posts, list) and len(posts) > 0:
+                # 构建表格
+                rows = []
+                for post in posts[:10]:  # 只显示前 10 个
+                    # 根据实际返回结构调整字段
+                    rows.append({
+                        "帖子 ID": str(post.get("id", "N/A"))[:15],
+                        "类型": post.get("media_type", "video"),
+                        "发布时间": str(post.get("created_at", post.get("timestamp", "N/A")))[:10],
+                        "点赞数": post.get("like_count", post.get("likes", 0)),
+                        "评论数": post.get("comment_count", post.get("comments", 0)),
+                        "链接": f"[查看]({post.get('permalink', post.get('url', '#'))})"
+                    })
                 
-                # 解析数据
-                rows, total_stats, account_info = parse_tiktok_data(result['data'], username)
-                
-                if not rows:
-                    st.warning("⚠️ 未找到视频数据，请检查账号是否正确")
-                else:
-                    # 显示账号信息
-                    if account_info:
-                        st.subheader(f"👤 @{account_info.get('unique_id', username)}")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.write(f"**昵称:** {account_info.get('nickname', 'N/A')}")
-                        with col2:
-                            st.write(f"**总获赞:** {account_info.get('total_favorited', 0):,}")
-                        with col3:
-                            st.write(f"**视频数:** {len(rows)}")
-                        
-                        if account_info.get('signature'):
-                            st.caption(f"📝 {account_info['signature']}")
-                    
-                    st.divider()
-                    
-                    # === 核心数据概览 ===
-                    st.subheader(f"📈 核心数据概览 (最近 {len(rows)} 条视频)")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("总播放量", f"{total_stats['play']:,}")
-                    with col2:
-                        st.metric("总点赞数", f"{total_stats['like']:,}")
-                    with col3:
-                        st.metric("总评论数", f"{total_stats['comment']:,}")
-                    with col4:
-                        st.metric("总分享数", f"{total_stats['share']:,}")
-                    
-                    st.divider()
-                    
-                    # === 数据表格 ===
-                    st.subheader("📋 视频详细列表")
+                if rows:
                     df = pd.DataFrame(rows)
                     st.dataframe(df, use_container_width=True, hide_index=True)
                     
-                    # === 图表 ===
-                    st.subheader("📊 视频表现趋势")
-                    chart_col1, chart_col2 = st.columns(2)
-                    with chart_col1:
-                        st.bar_chart(df.set_index('发布时间')['播放量'], use_container_width=True)
-                    with chart_col2:
-                        st.bar_chart(df.set_index('发布时间')['点赞数'], use_container_width=True)
-                    
-                    # === 下载按钮 ===
-                    st.divider()
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        csv = df.to_csv(index=False).encode('utf-8-sig')
-                        st.download_button(
-                            label="📥 下载CSV数据",
-                            data=csv,
-                            file_name=f'tiktok_{username}_{datetime.now().strftime("%Y%m%d")}.csv',
-                            mime='text/csv',
-                            use_container_width=True
-                        )
-                    with col2:
-                        json_str = json.dumps(result['data'], indent=2, ensure_ascii=False)
-                        st.download_button(
-                            label="📥 下载完整JSON",
-                            data=json_str,
-                            file_name=f'tiktok_{username}_{datetime.now().strftime("%Y%m%d")}.json',
-                            mime='application/json',
-                            use_container_width=True
-                        )
+                    # 简单图表
+                    if "点赞数" in df.columns:
+                        st.bar_chart(df.set_index("帖子 ID")["点赞数"])
+                else:
+                    st.warning("⚠️ 未解析到视频数据，请查看下方原始 JSON 调试")
+                    st.json(posts)
+            else:
+                st.warning("⚠️ 返回数据格式不是列表，请查看原始 JSON")
+                st.json(st.session_state['posts_data'])
+    
+    # ========================================
+    # 调试区域
+    # ========================================
+    with st.expander("🔍 查看原始 API 返回 (调试用)"):
+        st.write("**账号列表：**")
+        st.json(accounts_result)
+        
+        if "analytics_data" in st.session_state:
+            st.write("**分析数据：**")
+            st.json(st.session_state['analytics_data'])
+        
+        if "posts_data" in st.session_state:
+            st.write("**视频数据：**")
+            st.json(st.session_state['posts_data'])
 
 # ============================================
 # 页脚
 # ============================================
 st.markdown("---")
-st.caption("🛠️ powered by TikHub API & Streamlit | 数据仅供参考")
+st.caption("🛠️ powered by Post Bridge API & Streamlit | 仅显示已连接的自有账号")
 
 if __name__ == "__main__":
     main()
