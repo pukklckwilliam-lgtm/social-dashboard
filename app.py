@@ -1,342 +1,256 @@
-# 🎯 多平台社媒数据监控看板 - 完整版
-# 支持：TikTok • Instagram • YouTube • X(Twitter)
+# 🎯 多产品社媒监控系统 - 完整版
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
 import json
 
-# 页面配置
-st.set_page_config(page_title="📊 多平台社媒监控看板", layout="wide", page_icon="📈")
-
 # ============================================
-# 🔑 API Key 管理（支持 Streamlit Secrets）
+# 📦 产品配置（你可以在这里添加更多产品）
 # ============================================
-def get_api_key():
-    if "tikhub_api_key" in st.secrets:
-        st.sidebar.success("✅ API Key 已自动加载")
-        return st.secrets["tikhub_api_key"]
-    
-    with st.sidebar:
-        api_key = st.text_input("TikHub API Key", type="password", help="在 TikHub 后台获取")
-        if api_key:
-            st.session_state["api_key"] = api_key
-            st.sidebar.success("✅ API Key 已保存（本次会话）")
-        elif "api_key" in st.session_state:
-            api_key = st.session_state["api_key"]
-            st.sidebar.success("✅ API Key 已加载（本次会话）")
-    
-    return api_key if 'api_key' in locals() else None
-
-# ============================================
-# 🌐 平台与接口配置
-# ============================================
-PLATFORM_CONFIG = {
-    "TikTok": {
-        "视频列表": {
-            "endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
-            "method": "GET",
-            "param_name": "unique_id",
-            "data_path": ["data", "aweme_list"]
-        },
-        "用户信息": {
-            "endpoint": "/api/v1/tiktok/web/fetch_user_profile",
-            "method": "GET",
-            "param_name": "unique_id",
-            "data_path": ["data"]
+PRODUCTS_CONFIG = {
+    "PhotoRevive.AI": {
+        "image": "https://p16-common-sign.tiktokcdn-us.com/tos-useast8-avt-0068-tx2/a62a32b54c026de51797e4862fd4ecd2~tplv-tiktokx-cropcenter:300:300.webp",
+        "description": "AI 照片修复工具",
+        "accounts": {
+            "TikTok": {
+                "username": "photorevive.ai",
+                "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
+                "param_name": "unique_id"
+            },
+            "Instagram": {
+                "username": "photorevive.ai",
+                "api_endpoint": "/api/v1/instagram/v3/get_user_profile",
+                "param_name": "user_id"
+            },
+            "YouTube": {
+                "username": "@PhotoReviveAI",
+                "api_endpoint": "/api/v1/youtube/web/get_channel_videos_v2",
+                "param_name": "channel_id"
+            },
+            "X (Twitter)": {
+                "username": "photorevive_ai",
+                "api_endpoint": "/api/v1/twitter/web/fetch_user_profile",
+                "param_name": "username"
+            }
         }
     },
-    "Instagram": {
-        "Reels 视频": {
-            "endpoint": "/api/v1/instagram/v3/get_user_reels",
-            "method": "GET",
-            "param_name": "user_id",
-            "data_path": ["data", "items"]
-        },
-        "Posts 帖子": {
-            "endpoint": "/api/v1/instagram/v3/get_user_posts",
-            "method": "GET",
-            "param_name": "user_id",
-            "data_path": ["data", "items"]
-        },
-        "主页信息": {
-            "endpoint": "/api/v1/instagram/v3/get_user_profile",
-            "method": "GET",
-            "param_name": "user_id",
-            "data_path": ["data"]
-        }
-    },
-    "YouTube": {
-        "频道视频": {
-            "endpoint": "/api/v1/youtube/web/get_channel_videos_v2",
-            "method": "GET",
-            "param_name": "channel_id",
-            "data_path": ["data", "items"]
-        }
-    },
-    "X (Twitter)": {
-        "用户资料": {
-            "endpoint": "/api/v1/twitter/web/fetch_user_profile",
-            "method": "GET",
-            "param_name": "username",
-            "data_path": ["data"]
+    "产品 2（示例）": {
+        "image": "https://via.placeholder.com/300",
+        "description": "第二个产品",
+        "accounts": {
+            "TikTok": {
+                "username": "charlidamelio",
+                "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
+                "param_name": "unique_id"
+            }
         }
     }
 }
 
 # ============================================
-# 📡 API 请求函数
+# 🔑 API Key 管理
 # ============================================
-def fetch_data(api_key, platform, data_type, username):
-    """通用数据获取函数"""
-    config = PLATFORM_CONFIG.get(platform, {}).get(data_type)
-    if not config:
-        return {"error": f"暂不支持 {platform} 的 {data_type}"}
+def get_api_key():
+    if "tikhub_api_key" in st.secrets:
+        return st.secrets["tikhub_api_key"]
     
-    url = f"https://api.tikhub.io{config['endpoint']}"
+    with st.sidebar:
+        api_key = st.text_input("TikHub API Key", type="password")
+        if api_key:
+            st.session_state["api_key"] = api_key
+    
+    return st.session_state.get("api_key", None)
+
+# ============================================
+# 📡 数据获取函数
+# ============================================
+def fetch_account_data(api_key, platform, username, endpoint, param_name):
+    """获取账号数据"""
+    url = f"https://api.tikhub.io{endpoint}"
     headers = {"Authorization": f"Bearer {api_key}"}
-    
-    # 构建参数
-    param_name = config['param_name']
-    params = {param_name: username}
-    
-    # 添加默认参数
-    if data_type in ["视频列表", "Reels 视频", "Posts 帖子", "频道视频"]:
-        params["count"] = 10
+    params = {param_name: username, "count": 10}
     
     try:
-        if config['method'] == "GET":
-            response = requests.get(url, params=params, headers=headers, timeout=30)
-        else:
-            response = requests.post(url, json=params, headers=headers, timeout=30)
-        
+        response = requests.get(url, params=params, headers=headers, timeout=30)
         if response.status_code == 200:
             return response.json()
-        else:
-            return {"error": f"HTTP {response.status_code}", "details": response.text[:300]}
+        return {"error": f"HTTP {response.status_code}"}
     except Exception as e:
-        return {"error": f"请求失败：{str(e)}"}
+        return {"error": str(e)}
 
 # ============================================
-# 🔍 数据解析函数
+# 🎨 页面状态管理
 # ============================================
-def parse_data(result, platform, data_type):
-    """根据平台和数据类型解析数据"""
-    config = PLATFORM_CONFIG.get(platform, {}).get(data_type)
-    if not config:
-        return []
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "home"
+if "selected_product" not in st.session_state:
+    st.session_state.selected_product = None
+if "selected_platform" not in st.session_state:
+    st.session_state.selected_platform = None
+
+# ============================================
+# 🏠 首页：产品总览
+# ============================================
+def render_home_page():
+    st.title("📊 社媒产品监控系统")
+    st.markdown("*查看所有产品的社媒数据概览*")
     
-    data_path = config['data_path']
-    data = result
+    # 产品卡片网格
+    cols = st.columns(min(3, len(PRODUCTS_CONFIG)))
     
-    # 按路径提取数据
-    for key in data_path:
-        if isinstance(data, dict) and key in data:
-            data = data[key]
+    for idx, (product_name, config) in enumerate(PRODUCTS_CONFIG.items()):
+        with cols[idx % 3]:
+            with st.container(border=True):
+                # 产品图片
+                st.image(config["image"], use_container_width=True)
+                
+                # 产品名称
+                st.subheader(product_name)
+                
+                # 产品描述
+                st.caption(config["description"])
+                
+                # 账号数量
+                st.metric("平台数量", len(config["accounts"]))
+                
+                # 进入按钮
+                if st.button("查看详情", key=f"view_{product_name}", use_container_width=True):
+                    st.session_state.selected_product = product_name
+                    st.session_state.current_page = "product"
+                    st.rerun()
+
+# ============================================
+# 📱 产品详情页
+# ============================================
+def render_product_page():
+    product_name = st.session_state.selected_product
+    config = PRODUCTS_CONFIG[product_name]
+    
+    # 返回按钮
+    if st.button("← 返回首页"):
+        st.session_state.current_page = "home"
+        st.session_state.selected_product = None
+        st.rerun()
+    
+    st.title(f"📱 {product_name}")
+    st.markdown(f"*{config['description']}*")
+    
+    # 平台选择器
+    platforms = list(config["accounts"].keys())
+    selected_platform = st.selectbox("选择平台", platforms)
+    
+    if selected_platform:
+        st.session_state.selected_platform = selected_platform
+        account_config = config["accounts"][selected_platform]
+        
+        # 获取数据
+        api_key = get_api_key()
+        if api_key:
+            with st.spinner(f'正在获取 {selected_platform} 数据...'):
+                data = fetch_account_data(
+                    api_key,
+                    selected_platform,
+                    account_config["username"],
+                    account_config["api_endpoint"],
+                    account_config["param_name"]
+                )
+                
+                if "error" in data:
+                    st.error(f"获取数据失败：{data['error']}")
+                else:
+                    # 显示账号信息
+                    st.subheader(f"@{account_config['username']}")
+                    
+                    # 解析数据（根据不同平台调整）
+                    if selected_platform == "TikTok":
+                        display_tiktok_data(data, account_config["username"])
+                    else:
+                        st.json(data)  # 临时显示原始数据
+                    
+                    # 主页链接
+                    st.markdown(f"**[访问 {selected_platform} 主页](https://{selected_platform.lower().replace(' ', '')}.com/{account_config['username']})**")
         else:
-            return []
-    
-    if isinstance(data, list):
-        return data
-    elif isinstance(data, dict):
-        return [data]
-    return []
+            st.warning("请先在侧边栏输入 API Key")
 
 # ============================================
-# 📊 数据展示函数
+# 📊 TikTok 数据展示
 # ============================================
-def display_data(data, platform, data_type, username):
-    """根据数据类型展示数据"""
+def display_tiktok_data(data, username):
+    """展示 TikTok 账号数据"""
+    aweme_list = data.get("data", {}).get("aweme_list", [])
     
-    if not data:
-        st.warning("⚠️ 未找到数据")
+    if not aweme_list:
+        st.warning("未找到视频数据")
         return
     
-    # TikTok 视频列表
-    if platform == "TikTok" and data_type == "视频列表":
-        rows = []
-        total_stats = {'play': 0, 'like': 0, 'comment': 0, 'share': 0}
-        
-        for video in data[:10]:  # 只显示前 10 条
-            stats = video.get('statistics', {})
-            create_time = video.get('create_time', 0)
-            date_str = datetime.fromtimestamp(create_time).strftime('%Y-%m-%d') if create_time else 'N/A'
-            
-            play_count = stats.get('play_count', 0)
-            digg_count = stats.get('digg_count', 0)
-            comment_count = stats.get('comment_count', 0)
-            share_count = stats.get('share_count', 0)
-            
-            total_stats['play'] += play_count
-            total_stats['like'] += digg_count
-            total_stats['comment'] += comment_count
-            total_stats['share'] += share_count
-            
-            rows.append({
-                '发布时间': date_str,
-                '视频描述': (video.get('desc', '')[:40] + '...') if video.get('desc') else '无描述',
-                '播放量': play_count,
-                '点赞数': digg_count,
-                '评论数': comment_count,
-                '分享数': share_count,
-            })
-        
-        # 核心指标
-        st.subheader(f"📈 @{username} 的核心数据概览")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("总播放量", f"{total_stats['play']:,}")
-        with col2:
-            st.metric("总点赞数", f"{total_stats['like']:,}")
-        with col3:
-            st.metric("总评论数", f"{total_stats['comment']:,}")
-        with col4:
-            st.metric("总分享数", f"{total_stats['share']:,}")
-        
-        st.divider()
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
-        
-        # 图表
-        df = pd.DataFrame(rows)
-        if not df.empty:
-            st.subheader("📊 视频表现趋势")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.bar_chart(df.set_index('发布时间')['播放量'])
-            with col2:
-                st.bar_chart(df.set_index('发布时间')['点赞数'])
+    # 核心指标
+    total_stats = {"play": 0, "like": 0, "comment": 0, "share": 0}
     
-    # Instagram Reels/Posts
-    elif platform == "Instagram":
-        rows = []
-        for item in data[:10]:
-            rows.append({
-                'ID': item.get('id', 'N/A'),
-                '类型': item.get('media_type', 'N/A'),
-                '时间戳': item.get('timestamp', 'N/A'),
-                '点赞数': item.get('like_count', 0),
-                '评论数': item.get('comments_count', 0),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    for video in aweme_list:
+        stats = video.get("statistics", {})
+        total_stats["play"] += stats.get("play_count", 0)
+        total_stats["like"] += stats.get("digg_count", 0)
+        total_stats["comment"] += stats.get("comment_count", 0)
+        total_stats["share"] += stats.get("share_count", 0)
     
-    # YouTube 视频
-    elif platform == "YouTube":
-        rows = []
-        for video in data[:10]:
-            snippet = video.get('snippet', {})
-            stats = video.get('statistics', {})
-            rows.append({
-                '标题': snippet.get('title', 'N/A')[:50],
-                '发布时间': snippet.get('publishedAt', 'N/A')[:10],
-                '观看数': stats.get('viewCount', 0),
-                '点赞数': stats.get('likeCount', 0),
-                '评论数': stats.get('commentCount', 0),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    # 指标卡片
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("总播放量", f"{total_stats['play']:,}")
+    with col2:
+        st.metric("总点赞数", f"{total_stats['like']:,}")
+    with col3:
+        st.metric("总评论数", f"{total_stats['comment']:,}")
+    with col4:
+        st.metric("总分享数", f"{total_stats['share']:,}")
     
-    # X (Twitter) 用户资料
-    elif platform == "X (Twitter)":
-        if data:
-            user = data[0]
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("用户名", user.get('username', 'N/A'))
-            with col2:
-                st.metric("昵称", user.get('name', 'N/A'))
-            with col3:
-                st.metric("已认证", "✅" if user.get('verified', False) else "❌")
+    st.divider()
+    
+    # 视频封面墙
+    st.subheader("📹 最新视频")
+    video_cols = st.columns(3)
+    
+    for idx, video in enumerate(aweme_list[:6]):
+        with video_cols[idx % 3]:
+            # 视频封面
+            cover_url = video.get("video", {}).get("cover", {}).get("url_list", [""])[0]
+            if cover_url:
+                st.image(cover_url, use_container_width=True)
             
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("粉丝数", f"{user.get('followers_count', 0):,}")
-            with col2:
-                st.metric("关注数", f"{user.get('following_count', 0):,}")
-            with col3:
-                st.metric("推文数", f"{user.get('tweet_count', 0):,}")
-    
-    # 其他数据类型 - 显示原始 JSON
-    else:
-        st.json(data[:5] if isinstance(data, list) else data)
+            # 视频描述
+            desc = video.get("desc", "无描述")[:50] + "..."
+            st.caption(desc)
+            
+            # 跳转链接
+            share_url = video.get("share_url", "")
+            if share_url:
+                st.markdown(f"[观看视频]({share_url})")
+            
+            # 统计数据
+            stats = video.get("statistics", {})
+            st.write(f"👁 {stats.get('play_count', 0):,} | ❤ {stats.get('digg_count', 0):,}")
 
 # ============================================
-# 🎨 主界面
+# 🚀 主程序
 # ============================================
 def main():
-    st.title("📊 多平台社媒数据监控看板")
-    st.markdown("*支持 TikTok • Instagram • YouTube • X(Twitter)*")
-    
-    # 获取 API Key
     api_key = get_api_key()
     
-    if not api_key:
-        st.warning("⚠️ **请先配置 API Key！**\n\n在左侧侧边栏输入你的 TikHub API Key")
-        st.stop()
+    if not api_key and st.session_state.current_page != "home":
+        st.warning("⚠️ 请先在侧边栏输入 API Key")
     
-    # 侧边栏配置
-    with st.sidebar:
-        st.header("⚙️ 配置")
-        platform = st.selectbox("选择平台", list(PLATFORM_CONFIG.keys()))
-        data_type = st.selectbox("数据类型", list(PLATFORM_CONFIG[platform].keys()))
-        
-        # 根据平台显示不同的输入提示
-        param_name = PLATFORM_CONFIG[platform][data_type]['param_name']
-        if param_name == "user_id":
-            username = st.text_input("Instagram User ID", placeholder="数字 ID（如：123456789）")
-        elif param_name == "channel_id":
-            username = st.text_input("YouTube Channel", placeholder="@LinusTechTips 或频道 ID")
-        else:
-            username = st.text_input("用户名", placeholder="例如：photorevive.ai")
-    
-    # 主输入区域
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.write(f"**当前查询：** {platform} / {data_type} / @{username}")
-    with col2:
-        if st.button("🚀 获取数据", type="primary", use_container_width=True):
-            st.session_state['fetch_data'] = True
-    
-    # 获取并展示数据
-    if st.session_state.get('fetch_data', False):
-        st.session_state['fetch_data'] = False
-        
-        if not username:
-            st.error("❌ 请输入用户名/ID")
-            st.stop()
-        
-        with st.spinner(f'正在获取 {platform} 数据...'):
-            result = fetch_data(api_key, platform, data_type, username)
-            
-            if 'error' in result:
-                st.error(f"❌ {result['error']}")
-                if 'details' in result:
-                    st.text(result['details'])
-            else:
-                st.success("✅ 数据获取成功！")
-                
-                # 显示原始数据（可折叠）
-                with st.expander("📄 查看原始 JSON", expanded=False):
-                    st.json(result)
-                
-                # 解析并展示数据
-                data = parse_data(result, platform, data_type)
-                display_data(data, platform, data_type, username)
-                
-                # 下载按钮
-                if data:
-                    json_str = json.dumps(result, indent=2, ensure_ascii=False)
-                    st.download_button(
-                        label="📥 下载完整 JSON",
-                        data=json_str,
-                        file_name=f'{platform}_{username}_{datetime.now().strftime("%Y%m%d")}.json',
-                        mime='application/json',
-                        use_container_width=True
-                    )
+    # 页面路由
+    if st.session_state.current_page == "home":
+        render_home_page()
+    elif st.session_state.current_page == "product":
+        render_product_page()
+
+if __name__ == "__main__":
+    main()
 
 # ============================================
 # 页脚
 # ============================================
 st.markdown("---")
-st.caption("🛠️ powered by TikHub API & Streamlit | 数据仅供参考")
-
-if __name__ == "__main__":
-    main()
+st.caption("🛠️ powered by TikHub API & Streamlit")
