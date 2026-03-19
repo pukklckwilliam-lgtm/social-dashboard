@@ -1,4 +1,4 @@
-# 🎵 TikTok账号数据监控看板 - TikHub 专业版
+# 🎵 TikTok账号数据监控看板 - 调试版
 import streamlit as st
 import requests
 import pandas as pd
@@ -8,7 +8,7 @@ import json
 st.set_page_config(page_title="🎵 TikTok数据监控看板", layout="wide", page_icon="🎵")
 
 # ============================================
-# 🔑 API Key 管理（支持 Secrets）
+# 🔑 API Key 管理
 # ============================================
 def get_api_key():
     if "tikhub_api_key" in st.secrets:
@@ -19,18 +19,17 @@ def get_api_key():
                                help="在 TikHub 后台获取")
         if api_key:
             st.session_state["api_key"] = api_key
-            st.success("✅ API Key 已保存（本次会话）")
+            st.success("✅ API Key 已保存")
         elif "api_key" in st.session_state:
             api_key = st.session_state["api_key"]
-            st.success("✅ API Key 已加载（本次会话）")
+            st.success("✅ API Key 已加载")
     
     return api_key if 'api_key' in locals() else None
 
 # ============================================
-# 📡 TikHub 数据抓取
+# 📡 数据抓取（带详细错误信息）
 # ============================================
 def fetch_tiktok_data(api_key, username, count=10):
-    """从 TikHub 获取 TikTok 视频数据"""
     url = "https://api.tikhub.io/api/v1/tiktok/app/v3/fetch_user_post_videos_v3"
     
     headers = {
@@ -44,80 +43,26 @@ def fetch_tiktok_data(api_key, username, count=10):
     }
     
     try:
+        # 打印请求详情（用于调试）
+        st.write(f"**请求 URL:** {url}")
+        st.write(f"**请求参数:** {params}")
+        st.write(f"**请求头:** Authorization: Bearer {api_key[:20]}...")
+        
         response = requests.get(url, params=params, headers=headers, timeout=30)
+        
+        st.write(f"**HTTP 状态码:** {response.status_code}")
+        st.write(f"**响应内容:** {response.text[:500]}")
         
         if response.status_code == 200:
             result = response.json()
             if result.get('code') == 200:
                 return {"success": True, "data": result}
             else:
-                return {"success": False, "error": result.get('message', 'API返回错误')}
+                return {"success": False, "error": result.get('message', 'API返回错误'), "raw": result}
         else:
-            return {"success": False, "error": f"HTTP {response.status_code}"}
+            return {"success": False, "error": f"HTTP {response.status_code}", "raw": response.text}
     except Exception as e:
-        return {"success": False, "error": str(e)}
-
-# ============================================
-# 📊 数据解析函数
-# ============================================
-def parse_tiktok_data(result, username):
-    """解析 TikTok 视频数据"""
-    if 'data' not in result or 'aweme_list' not in result['data']:
-        return [], {}, {}
-    
-    video_list = result['data']['aweme_list']
-    rows = []
-    
-    # 统计总数
-    total_stats = {'play': 0, 'like': 0, 'comment': 0, 'share': 0}
-    
-    # 获取账号信息（从第一个视频）
-    account_info = {}
-    if video_list and 'author' in video_list[0]:
-        author = video_list[0]['author']
-        account_info = {
-            'nickname': author.get('nickname', username),
-            'unique_id': author.get('unique_id', username),
-            'avatar': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
-            'signature': author.get('signature', ''),
-            'follower_count': author.get('follower_count', 0),
-            'following_count': author.get('following_count', 0),
-            'total_favorited': author.get('total_favorited', 0)
-        }
-    
-    for video in video_list:
-        stats = video.get('statistics', {})
-        
-        # 时间转换
-        create_time = video.get('create_time', 0)
-        if create_time:
-            date_str = datetime.fromtimestamp(create_time).strftime('%Y-%m-%d %H:%M')
-        else:
-            date_str = 'N/A'
-        
-        # 提取统计数据
-        play_count = stats.get('play_count', 0)
-        digg_count = stats.get('digg_count', 0)
-        comment_count = stats.get('comment_count', 0)
-        share_count = stats.get('share_count', 0)
-        
-        # 累加总数
-        total_stats['play'] += play_count
-        total_stats['like'] += digg_count
-        total_stats['comment'] += comment_count
-        total_stats['share'] += share_count
-        
-        rows.append({
-            '发布时间': date_str,
-            '视频描述': (video.get('desc', '')[:50] + '...') if video.get('desc') else '无描述',
-            '播放量': play_count,
-            '点赞数': digg_count,
-            '评论数': comment_count,
-            '分享数': share_count,
-            '视频链接': video.get('share_url', '')
-        })
-    
-    return rows, total_stats, account_info
+        return {"success": False, "error": f"请求异常：{str(e)}"}
 
 # ============================================
 # 🎨 主界面
@@ -136,12 +81,9 @@ def main():
     # 侧边栏配置
     with st.sidebar:
         st.header("⚙️ 配置")
-        username = st.text_input("TikTok 用户名", placeholder="例如：photorevive.ai", value="photorevive.ai")
+        username = st.text_input("TikTok 用户名", placeholder="photorevive.ai", value="photorevive.ai")
         count = st.slider("抓取数量", min_value=1, max_value=30, value=10)
         
-        st.divider()
-        
-        # 快速操作按钮
         if st.button("🚀 获取数据", type="primary", use_container_width=True):
             st.session_state['fetch_data'] = True
     
@@ -158,97 +100,26 @@ def main():
             
             if not result['success']:
                 st.error(f"❌ {result['error']}")
-                if 'details' in result:
-                    st.text(result['details'])
+                
+                # 显示详细错误信息
+                if 'raw' in result:
+                    with st.expander("🔍 查看原始响应（调试用）"):
+                        st.write(result['raw'])
             else:
                 st.success("✅ 数据获取成功！")
                 
                 # 解析数据
-                rows, total_stats, account_info = parse_tiktok_data(result['data'], username)
+                data_content = result['data'].get('data', {})
+                video_list = data_content.get('aweme_list', [])
                 
-                if not rows:
-                    st.warning("⚠️ 未找到视频数据，请检查账号是否正确")
+                if not video_list:
+                    st.warning("⚠️ 未找到视频数据")
                 else:
-                    # === 账号信息卡片 ===
-                    if account_info:
-                        st.subheader(f"👤 @{account_info.get('unique_id', username)}")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.write(f"**昵称:** {account_info.get('nickname', 'N/A')}")
-                        with col2:
-                            st.write(f"**粉丝数:** {account_info.get('follower_count', 0):,}")
-                        with col3:
-                            st.write(f"**总获赞:** {account_info.get('total_favorited', 0):,}")
-                        
-                        if account_info.get('signature'):
-                            st.caption(f"📝 {account_info['signature']}")
+                    st.write(f"✅ 成功获取 {len(video_list)} 个视频！")
                     
-                    st.divider()
-                    
-                    # === 核心数据概览 ===
-                    st.subheader(f"📈 核心数据概览 (最近 {len(rows)} 条视频)")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("总播放量", f"{total_stats['play']:,}")
-                    with col2:
-                        st.metric("总点赞数", f"{total_stats['like']:,}")
-                    with col3:
-                        st.metric("总评论数", f"{total_stats['comment']:,}")
-                    with col4:
-                        st.metric("总分享数", f"{total_stats['share']:,}")
-                    
-                    # 计算平均值
-                    avg_play = int(total_stats['play'] / len(rows)) if rows else 0
-                    avg_like = int(total_stats['like'] / len(rows)) if rows else 0
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("平均播放", f"{avg_play:,}")
-                    with col2:
-                        st.metric("平均点赞", f"{avg_like:,}")
-                    
-                    st.divider()
-                    
-                    # === 数据表格 ===
-                    st.subheader("📋 视频详细列表")
-                    df = pd.DataFrame(rows)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-                    
-                    # === 图表 ===
-                    st.subheader("📊 视频表现趋势")
-                    chart_col1, chart_col2 = st.columns(2)
-                    with chart_col1:
-                        st.bar_chart(df.set_index('发布时间')['播放量'], use_container_width=True)
-                    with chart_col2:
-                        st.bar_chart(df.set_index('发布时间')['点赞数'], use_container_width=True)
-                    
-                    # === 下载按钮 ===
-                    st.divider()
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        csv = df.to_csv(index=False).encode('utf-8-sig')
-                        st.download_button(
-                            label="📥 下载 CSV 数据",
-                            data=csv,
-                            file_name=f'tiktok_{username}_{datetime.now().strftime("%Y%m%d")}.csv',
-                            mime='text/csv',
-                            use_container_width=True
-                        )
-                    with col2:
-                        json_str = json.dumps(result['data'], indent=2, ensure_ascii=False)
-                        st.download_button(
-                            label="📥 下载完整 JSON",
-                            data=json_str,
-                            file_name=f'tiktok_{username}_{datetime.now().strftime("%Y%m%d")}.json',
-                            mime='application/json',
-                            use_container_width=True
-                        )
-
-# ============================================
-# 页脚
-# ============================================
-st.markdown("---")
-st.caption("🛠️ powered by TikHub API & Streamlit | 数据仅供参考")
+                    # 显示第一个视频的原始数据（用于调试）
+                    with st.expander("🔍 查看第一个视频的原始数据结构"):
+                        st.json(video_list[0])
 
 if __name__ == "__main__":
     main()
