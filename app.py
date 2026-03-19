@@ -1,4 +1,4 @@
-# 🎯 社媒数据监控看板 - 小白专用版
+# 🎯 社媒数据监控看板 - 调试增强版
 import streamlit as st
 import requests
 import pandas as pd
@@ -40,6 +40,8 @@ if st.button("🔍 查询数据", type="primary", use_container_width=True):
             
             success = False
             result = None
+            last_response = None
+            
             for base in prefixes:
                 url = f"{base}{endpoint}"
                 headers = {
@@ -50,16 +52,34 @@ if st.button("🔍 查询数据", type="primary", use_container_width=True):
                 
                 try:
                     response = requests.post(url, json=payload, headers=headers, timeout=30)
+                    last_response = response  # 记录最后一次响应
+                    
                     if response.status_code == 200:
                         result = response.json()
                         success = True
                         break
-                except:
+                except Exception as e:
+                    st.warning(f"⚠️ 尝试 {base} 失败：{str(e)}")
                     continue
             
             if not success:
-                st.error("❌ 请求失败，请检查：")
-                st.markdown("- API Key 是否正确\n- 账号名称是否正确\n- TikHub 服务是否正常")
+                st.error("❌ 请求失败")
+                
+                # 显示详细调试信息
+                with st.expander("🔍 点击查看详细错误信息（请截图发给我）", expanded=True):
+                    st.write("**请求的 URL：**")
+                    st.code(f"https://api.tikhub.io{endpoint}")
+                    
+                    st.write("**请求参数：**")
+                    st.json({"username": account_id, "count": 10})
+                    
+                    if last_response is not None:
+                        st.write("**响应状态码：**", last_response.status_code)
+                        st.write("**响应内容：**")
+                        st.text(last_response.text[:1000])
+                    else:
+                        st.write("**响应内容：** 无响应（可能是网络问题或 URL 错误）")
+                
                 st.stop()
             
             st.success(f"✅ 成功获取 {account_id} 的 {platform} 数据！")
@@ -94,8 +114,8 @@ if st.button("🔍 查询数据", type="primary", use_container_width=True):
                 st.warning("⚠️ 数据格式特殊，请查看原始 JSON")
                 
         except Exception as e:
-            st.error(f"❌ 错误：{str(e)}")
-            st.info("💡 把错误信息发给我，我帮你改代码")
+            st.error(f"❌ 程序错误：{str(e)}")
+            st.info("💡 把错误信息截图发给我，我帮你改代码")
 
 st.markdown("---")
 st.caption("🛠️ AI 助手生成 | 有问题随时反馈")
