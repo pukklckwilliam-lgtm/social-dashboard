@@ -1,4 +1,4 @@
-# 🎯 多产品社媒监控系统 - 修复版
+# 🎯 多产品社媒监控系统 - 最终修复版
 import streamlit as st
 import requests
 import pandas as pd
@@ -17,25 +17,12 @@ PRODUCTS_CONFIG = {
                 "username": "photorevive.ai",
                 "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
                 "param_name": "unique_id",
-                "method": "GET"  # ✅ 明确指定方法
-            },
-            "Instagram": {
-                "username": "123456789",  # ⚠️ 需要替换为数字 ID
-                "api_endpoint": "/api/v1/instagram/v3/get_user_profile",
-                "param_name": "user_id",
-                "method": "GET",
-                "note": "需要 Instagram 权限 + 数字用户 ID"
-            },
-            "YouTube": {
-                "username": "@PhotoReviveAI",
-                "api_endpoint": "/api/v1/youtube/web/get_channel_videos_v2",
-                "param_name": "channel_id",
                 "method": "GET"
             },
-            "X (Twitter)": {
-                "username": "photorevive_ai",
-                "api_endpoint": "/api/v1/twitter/web/fetch_user_profile",
-                "param_name": "username",
+            "Instagram": {
+                "username": "123456789",
+                "api_endpoint": "/api/v1/instagram/v3/get_user_profile",
+                "param_name": "user_id",
                 "method": "GET"
             }
         }
@@ -43,37 +30,48 @@ PRODUCTS_CONFIG = {
 }
 
 # ============================================
-# 🔑 API Key 管理（修复版）
+# 🔑 API Key 管理（最终修复版）
 # ============================================
 def get_api_key():
     """安全获取 API Key"""
-    # 尝试从 Secrets 读取（带异常处理）
+    
+    # 尝试从 Secrets 读取
     try:
-        if "tikhub_api_key" in st.secrets:
-            return st.secrets["tikhub_api_key"]
+        if hasattr(st, 'secrets') and "tikhub_api_key" in st.secrets:
+            key = st.secrets["tikhub_api_key"]
+            if key and isinstance(key, str) and key.strip():
+                return key.strip()
     except Exception:
         pass
     
     # 从侧边栏读取
     with st.sidebar:
-        api_key = st.text_input("🔑 TikHub API Key", type="password",
+        st.header("🔑 API 配置")
+        api_key = st.text_input("TikHub API Key", type="password",
+                               placeholder="vpA5E99O82r...",
                                help="在 TikHub 后台获取")
-        if api_key:
+        
+        if api_key and api_key.strip():
+            api_key = api_key.strip()
             st.session_state["api_key"] = api_key
             st.sidebar.success("✅ 已保存")
-        elif "api_key" in st.session_state:
-            api_key = st.session_state["api_key"]
-            st.sidebar.success("✅ 已加载")
+            return api_key
+        elif "api_key" in st.session_state and st.session_state["api_key"]:
+            return st.session_state["api_key"]
     
-    return api_key if 'api_key' in locals() else None
+    return None
 
 # ============================================
-# 📡 数据获取函数（修复版）
+# 📡 数据获取函数
 # ============================================
 def fetch_account_data(api_key, platform, username, endpoint, param_name, method="GET"):
-    """获取账号数据 - 修复 URL 拼接 + 支持多方法"""
+    """获取账号数据"""
     
-    # ✅ 修复：URL 拼接无空格
+    # ✅ 关键检查
+    if not api_key or api_key in ["None", "null", ""]:
+        return {"success": False, "error": "API Key 无效"}
+    
+    # ✅ 修复 URL 拼接
     url = f"https://api.tikhub.io{endpoint}"
     
     headers = {
@@ -84,14 +82,10 @@ def fetch_account_data(api_key, platform, username, endpoint, param_name, method
     params = {param_name: username, "count": 10}
     
     try:
-        # ✅ 支持 GET/POST 自适应
         if method.upper() == "POST":
             response = requests.post(url, json=params, headers=headers, timeout=30)
         else:
             response = requests.get(url, params=params, headers=headers, timeout=30)
-        
-        # 调试信息
-        st.write(f"🔍 请求: {response.status_code} - {url[:80]}...")
         
         if response.status_code == 200:
             result = response.json()
@@ -106,34 +100,30 @@ def fetch_account_data(api_key, platform, username, endpoint, param_name, method
         return {"success": False, "error": f"请求异常: {str(e)}"}
 
 # ============================================
-# 🎨 页面状态管理
+# 🎨 页面状态
 # ============================================
 if "current_page" not in st.session_state:
     st.session_state.current_page = "home"
 if "selected_product" not in st.session_state:
     st.session_state.selected_product = None
-if "selected_platform" not in st.session_state:
-    st.session_state.selected_platform = None
 
 # ============================================
-# 🏠 首页：产品总览
+# 🏠 首页
 # ============================================
 def render_home_page():
     st.title("📊 社媒产品监控系统")
-    st.markdown("*查看所有产品的社媒数据概览*")
     
     cols = st.columns(min(3, len(PRODUCTS_CONFIG)))
-    
-    for idx, (product_name, config) in enumerate(PRODUCTS_CONFIG.items()):
+    for idx, (name, config) in enumerate(PRODUCTS_CONFIG.items()):
         with cols[idx % 3]:
             with st.container(border=True):
                 st.image(config["image"], use_container_width=True)
-                st.subheader(product_name)
+                st.subheader(name)
                 st.caption(config["description"])
-                st.metric("平台数量", len(config["accounts"]))
+                st.metric("平台数", len(config["accounts"]))
                 
-                if st.button("查看详情", key=f"view_{product_name}", use_container_width=True):
-                    st.session_state.selected_product = product_name
+                if st.button("查看详情", key=f"view_{name}", use_container_width=True):
+                    st.session_state.selected_product = name
                     st.session_state.current_page = "product"
                     st.rerun()
 
@@ -150,103 +140,79 @@ def render_product_page():
         st.rerun()
     
     st.title(f"📱 {product_name}")
-    st.markdown(f"*{config['description']}*")
     
     platforms = list(config["accounts"].keys())
     selected_platform = st.selectbox("选择平台", platforms)
     
     if selected_platform:
-        st.session_state.selected_platform = selected_platform
         account_config = config["accounts"][selected_platform]
         
         api_key = get_api_key()
-        if api_key:
+        
+        # ✅ 关键：如果 API Key 无效，直接提示
+        if not api_key:
+            st.error("❌ 请先在侧边栏输入有效的 API Key")
+            st.stop()
+        
+        username = st.text_input("用户名/ID", value=account_config["username"])
+        
+        if st.button("🚀 获取数据", type="primary"):
             with st.spinner(f'正在获取 {selected_platform} 数据...'):
                 data = fetch_account_data(
                     api_key,
                     selected_platform,
-                    account_config["username"],
+                    username,
                     account_config["api_endpoint"],
                     account_config["param_name"],
                     account_config.get("method", "GET")
                 )
                 
-                if "error" in data or not data.get("success"):
-                    st.error(f"❌ {data.get('error', '未知错误')}")
+                if not data.get("success"):
+                    st.error(f"❌ {data.get('error')}")
                     if 'details' in data:
-                        with st.expander("🔍 查看详细错误"):
+                        with st.expander("🔍 详细错误"):
                             st.code(data['details'])
-                    
-                    # Instagram 特殊提示
-                    if selected_platform == "Instagram":
-                        st.info("""
-                        **Instagram 403 常见原因：**
-                        1. API Key 没有 Instagram 权限 → 在 TikHub 后台开通
-                        2. 需要数字用户 ID → 用查询接口先获取 ID
-                        3. 账号私密或不存在 → 确认账号公开
-                        """)
                 else:
-                    st.success("✅ 数据获取成功！")
-                    st.subheader(f"@{account_config['username']}")
+                    st.success("✅ 成功！")
                     
                     if selected_platform == "TikTok":
-                        display_tiktok_data(data["data"], account_config["username"])
+                        display_tiktok_data(data["data"], username)
                     else:
-                        with st.expander("📄 查看原始数据"):
+                        with st.expander("📄 原始数据"):
                             st.json(data["data"])
-                    
-                    # 主页链接
-                    platform_lower = selected_platform.lower().replace(' ', '')
-                    st.markdown(f"**[访问 {selected_platform} 主页](https://{platform_lower}.com/{account_config['username']})**")
-        else:
-            st.warning("请先在侧边栏输入 API Key")
 
 # ============================================
-# 📊 TikTok 数据展示
+# 📊 TikTok 展示
 # ============================================
 def display_tiktok_data(data, username):
     aweme_list = data.get("data", {}).get("aweme_list", [])
     
     if not aweme_list:
-        st.warning("⚠️ 未找到视频数据")
+        st.warning("⚠️ 未找到视频")
         return
     
     total_stats = {"play": 0, "like": 0, "comment": 0, "share": 0}
-    
     for video in aweme_list:
         stats = video.get("statistics", {})
         total_stats["play"] += stats.get("play_count", 0)
         total_stats["like"] += stats.get("digg_count", 0)
-        total_stats["comment"] += stats.get("comment_count", 0)
-        total_stats["share"] += stats.get("share_count", 0)
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("总播放量", f"{total_stats['play']:,}")
+        st.metric("总播放", f"{total_stats['play']:,}")
     with col2:
-        st.metric("总点赞数", f"{total_stats['like']:,}")
-    with col3:
-        st.metric("总评论数", f"{total_stats['comment']:,}")
-    with col4:
-        st.metric("总分享数", f"{total_stats['share']:,}")
+        st.metric("总点赞", f"{total_stats['like']:,}")
     
     st.divider()
-    st.subheader("📹 最新视频")
-    video_cols = st.columns(3)
     
+    video_cols = st.columns(3)
     for idx, video in enumerate(aweme_list[:6]):
         with video_cols[idx % 3]:
-            cover_url = video.get("video", {}).get("cover", {}).get("url_list", [""])[0]
-            if cover_url:
-                st.image(cover_url, use_container_width=True)
-            
-            desc = video.get("desc", "无描述")[:50] + "..."
+            cover = video.get("video", {}).get("cover", {}).get("url_list", [""])[0]
+            if cover:
+                st.image(cover, use_container_width=True)
+            desc = (video.get("desc", "")[:40] + "...") if video.get("desc") else "无描述"
             st.caption(desc)
-            
-            share_url = video.get("share_url", "")
-            if share_url:
-                st.markdown(f"[观看视频]({share_url})")
-            
             stats = video.get("statistics", {})
             st.write(f"👁 {stats.get('play_count', 0):,} | ❤ {stats.get('digg_count', 0):,}")
 
@@ -256,8 +222,9 @@ def display_tiktok_data(data, username):
 def main():
     api_key = get_api_key()
     
-    if not api_key and st.session_state.current_page != "home":
-        st.warning("⚠️ 请先在侧边栏输入 API Key")
+    # ✅ 全局检查
+    if not api_key:
+        st.warning("⚠️ 请先配置 API Key")
     
     if st.session_state.current_page == "home":
         render_home_page()
@@ -268,4 +235,4 @@ if __name__ == "__main__":
     main()
 
 st.markdown("---")
-st.caption("🛠️ powered by TikHub API & Streamlit | 修复版")
+st.caption("🛠️ powered by TikHub API | 最终修复版")
