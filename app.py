@@ -1,20 +1,38 @@
-# 🎯 社媒数据监控看板 - 修复版
+# 🎯 社媒数据监控看板 - 自动保存 API Key 版
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="📊 社媒数据监控看板", layout="wide", page_icon="📈")
+st.set_page_config(page_title="📊 社媒监控看板", layout="wide", page_icon="📈")
 
 # 侧边栏配置
 st.sidebar.title("⚙️ 设置")
-api_key = st.sidebar.text_input("TikHub API Key", type="password", help="在 TikHub 后台获取")
-platform = st.sidebar.selectbox("平台", ["tiktok", "instagram", "facebook", "youtube", "twitter"])
-username = st.sidebar.text_input("账号用户名", placeholder="例如：photorevive.ai")
+
+# 优先从 secrets 读取 API Key，如果没有则使用输入框
+if "tikhub_api_key" in st.secrets:
+    api_key = st.secrets["tikhub_api_key"]
+    st.sidebar.success("✅ API Key 已自动加载")
+else:
+    api_key = st.sidebar.text_input("TikHub API Key", type="password", help="输入后会自动保存")
+    if api_key:
+        st.session_state["api_key"] = api_key
+        st.sidebar.success("✅ API Key 已保存（本次会话）")
+
+# 如果没有 API Key，尝试从 session_state 读取
+if not api_key and "api_key" in st.session_state:
+    api_key = st.session_state["api_key"]
 
 # 主界面
 st.title("📊 社媒数据监控看板")
-st.markdown(f"*当前监控：**{platform} / @{username}** *")
+st.markdown("*支持 TikTok • Instagram • Facebook • YouTube • X*")
+
+# 输入区域
+col1, col2 = st.columns(2)
+with col1:
+    platform = st.selectbox("平台", ["tiktok", "instagram", "facebook", "youtube", "twitter"])
+with col2:
+    username = st.text_input("账号用户名", placeholder="例如：photorevive.ai")
 
 # 获取数据按钮
 if st.button("🚀 获取最新数据", type="primary", use_container_width=True):
@@ -27,25 +45,19 @@ if st.button("🚀 获取最新数据", type="primary", use_container_width=True
     
     with st.spinner(f'正在从 TikHub 抓取 {username} 的数据...'):
         try:
-            # 构建请求 URL - 使用 GET 方法
-            base_url = "https://api.tikhub.io"
-            endpoint = f"/api/v1/{platform}/app/v3/fetch_user_post_videos_v3"
-            url = base_url + endpoint
-            
-            # 请求头
+            # 构建请求
+            url = f"https://api.tikhub.io/api/v1/{platform}/app/v3/fetch_user_post_videos_v3"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
-            
-            # 请求参数 - GET 请求使用 params
-            params = {
+            payload = {
                 "unique_id": username if platform == "tiktok" else username,
                 "count": 10
             }
             
-            # 使用 GET 请求（修复 405 错误）
-            response = requests.get(url, params=params, headers=headers, timeout=30)
+            # 发送请求
+            response = requests.get(url, params=payload, headers=headers, timeout=30)
             
             # 检查响应
             if response.status_code == 200:
