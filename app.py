@@ -1,5 +1,191 @@
 import streamlit as st
+import req# 🎯 社媒数据监控看板 - 多接口支持版
+import streamlit as st
 import requests
+import pandas as pd
+from datetime import datetime
+
+st.set_page_config(page_title="📊 TikHub 社媒监控看板", layout="wide", page_icon="📈")
+
+# 侧边栏配置
+with st.sidebar:
+    st.header("⚙️ 设置")
+    
+    # API Key（支持 Secrets）
+    if "tikhub_api_key" in st.secrets:
+        api_key = st.secrets["tikhub_api_key"]
+        st.success("✅ API Key 已自动加载")
+    else:
+        api_key = st.text_input("TikHub API Key", type="password")
+    
+    # 平台选择
+    platform = st.selectbox("平台", ["tiktok", "instagram", "facebook", "youtube", "twitter"])
+    
+    # 🔥 新增：数据类型选择
+    data_type = st.selectbox(
+        "数据类型",
+        [
+            "视频列表",           # fetch_user_post_videos_v3
+            "用户信息",           # fetch_user_profile / user/info
+            "评论数据",           # fetch_video_comments
+            "粉丝列表",           # fetch_user_followers
+        ]
+    )
+    
+    # 账号输入
+    username = st.text_input("账号用户名", placeholder="例如：photorevive.ai")
+
+# 主界面
+st.title("📊 TikHub 社媒数据监控看板")
+st.markdown(f"*当前：**{platform}** / **@{username}** / **{data_type}** *")
+
+# 接口映射配置
+INTERFACE_CONFIG = {
+    "tiktok": {
+        "视频列表": {
+            "endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
+            "params": {"unique_id": None, "count": 10},
+            "method": "GET"
+        },
+        "用户信息": {
+            "endpoint": "/api/v1/tiktok/web/fetch_user_profile",
+            "params": {"unique_id": None},
+            "method": "GET"
+        },
+        "评论数据": {
+            "endpoint": "/api/v1/tiktok/app/v3/fetch_video_comments",
+            "params": {"aweme_id": None, "count": 20},
+            "method": "GET",
+            "note": "⚠️ 需要先获取视频 ID"
+        },
+        "粉丝列表": {
+            "endpoint": "/api/v1/tiktok/app/v3/fetch_user_followers",
+            "params": {"unique_id": None, "count": 20},
+            "method": "GET"
+        }
+    },
+    # 其他平台可类似扩展...
+}
+
+# 获取数据函数
+def fetch_data(api_key, platform, data_type, username, extra_params=None):
+    config = INTERFACE_CONFIG.get(platform, {}).get(data_type)
+    if not config:
+        return {"error": f"暂不支持 {platform} 的 {data_type}"}
+    
+    url = f"https://api.tikhub.io{config['endpoint']}"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    
+    # 构建参数
+    params = config['params'].copy()
+    for k, v in params.items():
+        if v is None and username:
+            params[k] = username
+    if extra_params:
+        params.update(extra_params)
+    
+    try:
+        if config['method'] == "GET":
+            response = requests.get(url, params=params, headers=headers, timeout=30)
+        else:
+            response = requests.post(url, json=params, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"error": f"HTTP {response.status_code}", "details": response.text[:300]}
+    except Exception as e:
+        return {"error": f"请求失败: {str(e)}"}
+
+# 主逻辑
+if st.button("🚀 获取数据", type="primary", use_container_width=True):
+    if not api_key:
+        st.error("❌ 请先输入 API Key")
+        st.stop()
+    if not username:
+        st.error("❌ 请输入账号用户名")
+        st.stop()
+    
+    with st.spinner(f'正在获取 {data_type}...'):
+        result = fetch_data(api_key, platform, data_type, username)
+        
+        if 'error' in result:
+            st.error(f"❌ {result['error']}")
+            if 'details' in result:
+                st.text(result['details'])
+        else:
+            st.success("✅ 获取成功！")
+            
+            # 🔍 调试：显示原始数据（可折叠）
+            with st.expander("📄 查看原始 JSON", expanded=False):
+                st.json(result)
+            
+            # 📊 智能解析并展示
+            display_data(result, data_type)
+
+# 数据展示函数
+def display_data(result, data_type):
+    if data_type == "视频列表":
+        videos = result.get('data', {}).get('aweme_list', [])
+        if videos:
+            st.subheader(f"📹 找到 {len(videos)} 个视频")
+            
+            # 提取核心字段
+            rows = []
+            for v in videos:
+                stats = v.get('statistics', {})
+                rows.append({
+                    '发布时间': datetime.fromtimestamp(v.get('create_time', 0)).strftime('%Y-%m-%d'),
+                    '描述': (v.get('desc', '')[:40] + '...') if v.get('desc') else '无描述',
+                    '播放量': stats.get('play_count', 0),
+                    '点赞数': stats.get('digg_count', 0),
+                    '评论数': stats.get('comment_count', 0),
+                    '分享数': stats.get('share_count', 0),
+                })
+            
+            df = pd.DataFrame(rows)
+            st.dataframe(df, use_container_width=True)
+            
+            # 简单图表
+            col1, col2 = st.columns(2)
+            with col1:
+                st.bar_chart(df.set_index('发布时间')['播放量'])
+            with col2:
+                st.bar_chart(df.set_index('发布时间')['点赞数'])
+    
+    elif data_type == "用户信息":
+        user = result.get('data', {})
+        if user:
+            st.subheader("👤 用户信息")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("用户名", user.get('unique_id', user.get('username', 'N/A')))
+            with col2:
+                st.metric("昵称", user.get('nickname', user.get('display_name', 'N/A')))
+            with col3:
+                st.metric("已认证", "✅" if user.get('verified', False) else "❌")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("粉丝数", f"{user.get('follower_count', user.get('followers', 0)):,}")
+            with col2:
+                st.metric("关注数", f"{user.get('following_count', user.get('following', 0)):,}")
+            with col3:
+                st.metric("总获赞", f"{user.get('total_favorited', user.get('heart_count', 0)):,}")
+    
+    elif data_type == "评论数据":
+        comments = result.get('data', {}).get('comments', [])
+        if comments:
+            st.subheader(f"💬 找到 {len(comments)} 条评论")
+            for c in comments[:10]:  # 只显示前 10 条
+                st.write(f"**@{c.get('user', {}).get('unique_id', 'unknown')}**: {c.get('text', '')[:100]}")
+    
+    else:
+        st.info("ℹ️ 该数据类型暂不支持详细展示，请查看上方原始 JSON")
+
+# 页脚
+st.markdown("---")
+st.caption("🛠️ powered by TikHub API | 支持多接口 • 多平台")uests
 import pandas as pd
 from datetime import datetime
 
