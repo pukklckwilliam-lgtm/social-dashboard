@@ -1,131 +1,77 @@
-# 🎯 社媒数据监控看板 - 编码修复版
+# 🎯 Social Media Dashboard - Final Fix
 import streamlit as st
 import requests
 import pandas as pd
-import urllib.parse
+import json
 
-st.set_page_config(page_title="Social Media Dashboard", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Social Dashboard", layout="wide")
 
-# 侧边栏配置
+# Sidebar
 st.sidebar.header("Settings")
-api_key = st.sidebar.text_input("TikHub API Key", type="password")
-test_mode = st.sidebar.checkbox("Debug Mode", value=True)
+api_key = st.sidebar.text_input("API Key", type="password")
 
-# 主界面
+# Main
 st.title("📊 Social Media Dashboard")
-st.markdown("*Support: TikTok, Instagram, Facebook, YouTube, X*")
 
-# 平台映射（英文，避免编码问题）
-platform_map = {
-    "TikTok": "tiktok",
-    "Instagram": "instagram", 
-    "Facebook": "facebook",
-    "YouTube": "youtube",
-    "X (Twitter)": "twitter"
-}
-
-# 输入区域
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 with col1:
-    platform_display = st.selectbox("Platform", list(platform_map.keys()))
-    platform = platform_map[platform_display]
+    platform = st.selectbox("Platform", ["tiktok", "instagram", "facebook", "youtube", "twitter"])
 with col2:
-    account_id = st.text_input("Username", placeholder="e.g., charlidamelio")
-with col3:
-    data_type = st.selectbox("Data Type", ["User Info", "Videos", "Comments"])
+    username = st.text_input("Username", "charlidamelio")
 
-# 获取数据按钮
-if st.button("🔍 Fetch Data", type="primary", use_container_width=True):
+if st.button("Fetch Data", type="primary"):
     if not api_key:
-        st.error("❌ Please enter API Key in sidebar")
-        st.stop()
-    if not account_id:
-        st.error("❌ Please enter username")
+        st.error("Please enter API Key")
         st.stop()
     
-    with st.spinner(f"Fetching {platform} data..."):
+    with st.spinner("Fetching..."):
         try:
-            # 构建 URL（确保 ASCII 编码）
-            base_url = "https://api.tikhub.io"
-            endpoint = f"/api/v1/{platform}/app/v3/fetch_user_post_videos_v3"
-            url = base_url + endpoint
+            # Build URL
+            url = f"https://api.tikhub.io/api/v1/{platform}/app/v3/fetch_user_post_videos_v3"
             
-            # 构建请求头（纯 ASCII）
+            # Prepare headers - use raw string
             headers = {
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": "Bearer " + str(api_key).strip(),
                 "Content-Type": "application/json",
-                "Accept": "application/json"
+                "User-Agent": "Mozilla/5.0"
             }
             
-            # 构建请求参数（确保 ASCII）
-            payload = {
-                "username": str(account_id),
+            # Prepare body - ensure ASCII
+            body = json.dumps({
+                "username": str(username).strip(),
                 "count": 10
-            }
+            }, ensure_ascii=True)
             
-            # 显示调试信息
-            if test_mode:
-                with st.expander("🔍 Debug Info"):
-                    st.write("**URL:**")
-                    st.code(url)
-                    st.write("**Headers:**")
-                    st.json({"Authorization": "Bearer ***", "Content-Type": "application/json"})
-                    st.write("**Payload:**")
-                    st.json(payload)
+            # Debug info
+            with st.expander("Debug Info"):
+                st.write("URL:", url)
+                st.write("Method: POST")
+                st.write("Body:", body)
             
-            # 发送请求（使用纯 ASCII）
+            # Make request - use data instead of json parameter
             response = requests.post(
-                url.encode('ascii'),
-                json=payload,
+                url,
+                data=body.encode('utf-8'),  # Explicitly encode as UTF-8
                 headers=headers,
                 timeout=30
             )
             
-            # 检查响应
+            # Show response
+            st.write("Status Code:", response.status_code)
+            
             if response.status_code == 200:
+                st.success("Success!")
                 result = response.json()
-                st.success(f"✅ Successfully fetched data for {account_id}!")
+                st.json(result)
                 
-                # 显示原始数据
-                if test_mode:
-                    with st.expander("📄 Raw JSON Response"):
-                        st.json(result)
-                
-                # 解析数据
-                data_list = []
-                if isinstance(result, dict):
-                    for key in ['data', 'results', 'videos', 'items', 'list']:
-                        if key in result and isinstance(result[key], list):
-                            data_list = result[key]
-                            break
-                    if not data_list and 'data' in result and isinstance(result['data'], dict):
-                        data_list = [result['data']]
-                
-                if data_list:
-                    df = pd.DataFrame(data_list)
-                    st.subheader("📋 Data Preview")
-                    st.dataframe(df, use_container_width=True)
-                    
-                    # 图表
-                    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-                    if numeric_cols:
-                        st.subheader("📈 Visualization")
-                        x_col = st.selectbox("X Axis", df.columns.tolist())
-                        y_col = st.selectbox("Y Axis", numeric_cols)
-                        st.bar_chart(df.set_index(x_col)[y_col])
-                else:
-                    st.warning("⚠️ Data format is unusual, check raw JSON above")
+                # Try to display as table
+                if 'data' in result and isinstance(result['data'], list):
+                    df = pd.DataFrame(result['data'])
+                    st.dataframe(df)
             else:
-                st.error(f"❌ Request failed with status {response.status_code}")
-                with st.expander("📄 Response Details"):
-                    st.text(response.text[:1000])
-                    
-        except UnicodeEncodeError as e:
-            st.error(f"❌ Encoding error: {str(e)}")
-            st.info("💡 This usually means the username contains special characters. Try using a simple username.")
+                st.error(f"Failed: {response.status_code}")
+                st.text(response.text[:500])
+                
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            st.info("💡 Screenshot the error and send it to me for help")
-
-st.markdown("---")
-st.caption("🛠️ Powered by AI Assistant | Feedback welcome")
+            st.error(f"Error: {type(e).__name__}: {str(e)}")
+            st.info("Please screenshot this and send to me")
