@@ -1,8 +1,10 @@
-# 🎯 Post Bridge 社媒数据看板 - 调试版
+# 🎯 Post Bridge 社媒数据监控看板 - 修正版
 import streamlit as st
 import requests
+import pandas as pd
+from datetime import datetime
 
-st.set_page_config(page_title="🌉 Post Bridge 社媒数据看板", layout="wide")
+st.set_page_config(page_title="🌉 Post Bridge 数据看板", layout="wide", page_icon="🌉")
 
 # ============================================
 # 🔑 API Key 管理
@@ -22,112 +24,177 @@ def get_api_key():
 # ============================================
 # 📡 API 请求函数
 # ============================================
-def fetch_connected_accounts(api_key):
-    """获取已连接的社交账号"""
+def fetch_social_accounts(api_key, limit=50, offset=0):
+    """获取已连接的社交账号列表"""
     url = "https://api.post-bridge.com/v1/social-accounts"
     headers = {"Authorization": f"Bearer {api_key}"}
+    params = {"limit": limit, "offset": offset}
+    
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        response = requests.get(url, headers=headers, params=params, timeout=30)
         if response.status_code == 200:
-            return {"success": True, "data": response.json(), "status_code": response.status_code}
-        else:
-            return {"success": False, "error": f"HTTP {response.status_code}", 
-                    "details": response.text[:500], "status_code": response.status_code}
+            return response.json()
+        return {"error": f"HTTP {response.status_code}"}
     except Exception as e:
-        return {"success": False, "error": str(e), "status_code": None}
+        return {"error": str(e)}
+
+def fetch_analytics(api_key, account_id):
+    """获取账号分析数据"""
+    url = "https://api.post-bridge.com/v1/analytics"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    params = {"account_id": account_id}
+    
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        if response.status_code == 200:
+            return response.json()
+        return {"error": f"HTTP {response.status_code}"}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ============================================
 # 🎨 主界面
 # ============================================
-st.title("🌉 Post Bridge 社媒数据看板 - 调试模式")
-st.markdown("*调试 API 返回数据结构*")
-
-# 获取 API Key
-api_key = get_api_key()
-
-if not api_key:
-    st.warning("⚠️ 请先在侧边栏输入 Post Bridge API Key")
-    st.stop()
-
-if not api_key.startswith("pb_live_"):
-    st.error("❌ API Key 格式不正确，应以 pb_live_ 开头")
-    st.stop()
-
-# 获取账号数据
-st.subheader("📡 API 请求结果")
-with st.spinner("正在获取数据..."):
-    result = fetch_connected_accounts(api_key)
-
-# 显示原始响应
-st.write(f"**HTTP 状态码:** `{result.get('status_code')}`")
-
-if result.get('success'):
-    st.success("✅ 请求成功")
+def main():
+    st.title("🌉 Post Bridge 社媒数据看板")
+    st.markdown("*管理已连接的自有账号*")
     
-    # 显示原始 JSON
-    st.subheader("📄 原始 JSON 数据")
-    st.json(result['data'])
+    # 获取 API Key
+    api_key = get_api_key()
     
-    # 分析数据结构
-    st.subheader("🔍 数据结构分析")
-    data = result['data']
+    if not api_key:
+        st.warning("⚠️ 请先在侧边栏输入 Post Bridge API Key")
+        st.stop()
     
-    if isinstance(data, dict):
-        st.write("**顶层键名：**", list(data.keys()))
+    # 侧边栏配置
+    with st.sidebar:
+        st.header("⚙️ 设置")
+        if st.button("🔄 刷新账号列表", use_container_width=True):
+            st.session_state["refresh"] = True
+    
+    # 获取账号列表
+    with st.spinner("正在获取账号列表..."):
+        result = fetch_social_accounts(api_key, limit=50)
+    
+    if "error" in result:
+        st.error(f"❌ 获取账号失败：{result['error']}")
+        st.stop()
+    
+    # 解析数据 - 注意这里的数据结构！
+    accounts_data = result.get("data", [])
+    meta = result.get("meta", {})
+    
+    if not accounts_data:
+        st.warning("⚠️ 未找到已连接的账号")
+        st.markdown("""
+        ### 📌 如何连接账号：
+        1. 登录 [Post Bridge Dashboard](https://post-bridge.com)
+        2. 点击 **Connect Account**
+        3. 授权你的社交账号
+        4. 刷新此页面
+        """)
+        st.stop()
+    
+    # 显示账号统计
+    total_accounts = meta.get("total", len(accounts_data))
+    st.subheader(f"📊 已连接 {total_accounts} 个账号")
+    
+    # 按平台分组统计
+    platform_counts = {}
+    for acc in accounts_data:
+        platform = acc.get("platform", "unknown")
+        platform_counts[platform] = platform_counts.get(platform, 0) + 1
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("总账号数", total_accounts)
+    with col2:
+        st.metric("平台数", len(platform_counts))
+    with col3:
+        st.metric("本次显示", len(accounts_data))
+    
+    # 显示平台分布
+    st.write("**平台分布：**")
+    platform_text = " | ".join([f"{k}: {v}" for k, v in platform_counts.items()])
+    st.info(platform_text)
+    
+    st.divider()
+    
+    # 账号列表展示
+    st.subheader("📱 账号列表")
+    
+    # 创建数据表格
+    rows = []
+    for idx, acc in enumerate(accounts_data):
+        rows.append({
+            "序号": idx + 1,
+            "平台": acc.get("platform", "N/A").upper(),
+            "用户名": f"@{acc.get('username', 'N/A')}",
+            "账号ID": acc.get("id", "N/A")
+        })
+    
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # 账号选择器
+    st.divider()
+    st.subheader("🔍 查看账号详情")
+    
+    account_options = {f"@{acc.get('username')} ({acc.get('platform').upper()})": acc 
+                       for acc in accounts_data}
+    
+    selected_name = st.selectbox("选择账号", list(account_options.keys()))
+    selected_account = account_options[selected_name]
+    account_id = selected_account.get("id")
+    
+    st.write(f"**当前账号：** {selected_name} | **ID:** `{account_id}`")
+    
+    # 获取分析数据按钮
+    if st.button("📊 获取分析数据", type="primary"):
+        with st.spinner("正在获取分析数据..."):
+            analytics_result = fetch_analytics(api_key, account_id)
         
-        # 检查常见键
-        for key in ['data', 'accounts', 'items', 'result']:
-            if key in data:
-                st.write(f"\n**'{key}' 字段内容：**")
-                value = data[key]
-                if isinstance(value, list):
-                    st.write(f"- 类型：列表，长度：{len(value)}")
-                    if len(value) > 0:
-                        st.write(f"- 第一个元素类型：{type(value[0])}")
-                        if isinstance(value[0], dict):
-                            st.write(f"- 第一个元素的键：{list(value[0].keys())}")
-                            # 检查 platform 字段
-                            if 'platform' in value[0]:
-                                st.write(f"- platform 字段值示例：{value[0]['platform']}")
-                elif isinstance(value, dict):
-                    st.write(f"- 类型：字典")
-                    st.write(f"- 键：{list(value.keys())}")
-    
-    # 尝试不同的解析方式
-    st.subheader("🔧 尝试不同的解析方式")
-    
-    # 方式1：直接检查 data 字段
-    if 'data' in data and isinstance(data['data'], list):
-        accounts = data['data']
-        st.write(f"✅ 方式1成功：找到 {len(accounts)} 个账号")
-        for acc in accounts[:3]:  # 只显示前3个
-            st.write(f"- {acc.get('username', 'N/A')} | 平台：{acc.get('platform', 'N/A')}")
-    
-    # 方式2：检查 accounts 字段
-    elif 'accounts' in data and isinstance(data['accounts'], list):
-        accounts = data['accounts']
-        st.write(f"✅ 方式2成功：找到 {len(accounts)} 个账号")
-        for acc in accounts[:3]:
-            st.write(f"- {acc.get('username', 'N/A')} | 平台：{acc.get('platform', 'N/A')}")
-    
-    # 方式3：检查 items 字段
-    elif 'items' in data and isinstance(data['items'], list):
-        accounts = data['items']
-        st.write(f"✅ 方式3成功：找到 {len(accounts)} 个账号")
-        for acc in accounts[:3]:
-            st.write(f"- {acc.get('username', 'N/A')} | 平台：{acc.get('platform', 'N/A')}")
-    
-    else:
-        st.warning("⚠️ 未找到标准的账号列表字段")
-        st.write("请查看上面的原始 JSON 数据，告诉我账号数据在哪个字段里")
-
-else:
-    st.error(f"❌ 请求失败：{result.get('error')}")
-    if 'details' in result:
-        st.code(result['details'])
+        if "error" in analytics_result:
+            st.error(f"❌ 获取分析数据失败：{analytics_result['error']}")
+        else:
+            st.success("✅ 数据获取成功！")
+            
+            # 显示原始数据（调试用）
+            with st.expander("📄 查看原始 JSON"):
+                st.json(analytics_result)
+            
+            # 尝试解析分析数据
+            data = analytics_result.get("data", {})
+            
+            if isinstance(data, dict):
+                # 显示常见指标
+                st.subheader("📈 核心指标")
+                
+                metrics_to_show = {}
+                for key, value in data.items():
+                    if isinstance(value, (int, float)):
+                        metrics_to_show[key] = value
+                
+                if metrics_to_show:
+                    cols = st.columns(min(4, len(metrics_to_show)))
+                    for idx, (key, value) in enumerate(metrics_to_show.items()):
+                        with cols[idx % 4]:
+                            label = key.replace("_", " ").title()
+                            if isinstance(value, float) and value < 1:
+                                st.metric(label, f"{value:.2%}")
+                            else:
+                                st.metric(label, f"{int(value):,}")
+                else:
+                    st.warning("⚠️ 未找到数值型指标")
+            else:
+                st.write("数据结构：", type(data))
+                st.json(data)
 
 # ============================================
 # 页脚
 # ============================================
 st.markdown("---")
-st.caption("🛠️ 调试模式 | 请截图或复制上面的 JSON 数据发给我")
+st.caption("🛠️ powered by Post Bridge API & Streamlit")
+
+if __name__ == "__main__":
+    main()
