@@ -1,27 +1,54 @@
-# 🎯 多产品社媒监控系统 - TikTok 完整版（修复版）
+# 🎯 多产品社媒监控系统 - 可添加产品版
 import streamlit as st
 import requests
 import pandas as pd
+import json
+import os
 from datetime import datetime
 
 st.set_page_config(page_title="📊 社媒监控系统", layout="wide", page_icon="📱")
 
 # ============================================
-# 📦 产品配置
+# 💾 配置文件管理
 # ============================================
-PRODUCTS_CONFIG = {
-    "PhotoRevive.AI": {
-        "image": "https://p16-common-sign.tiktokcdn-us.com/tos-useast8-avt-0068-tx2/a62a32b54c026de51797e4862fd4ecd2~tplv-tiktokx-cropcenter:300:300.webp",
-        "description": "AI 照片修复工具",
-        "accounts": {
-            "TikTok": {
-                "username": "photorevive.ai",
-                "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
-                "param_name": "unique_id"
+CONFIG_FILE = "products_config.json"
+
+def load_products_config():
+    """加载产品配置"""
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except:
+        pass
+    
+    # 默认配置
+    return {
+        "PhotoRevive.AI": {
+            "image": "https://p16-common-sign.tiktokcdn-us.com/tos-useast8-avt-0068-tx2/a62a32b54c026de51797e4862fd4ecd2~tplv-tiktokx-cropcenter:300:300.webp",
+            "description": "AI 照片修复工具",
+            "accounts": {
+                "TikTok": {
+                    "username": "photorevive.ai",
+                    "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
+                    "param_name": "unique_id"
+                }
             }
         }
     }
-}
+
+def save_products_config(config):
+    """保存产品配置"""
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        st.error(f"保存失败：{e}")
+        return False
+
+# 加载配置
+PRODUCTS_CONFIG = load_products_config()
 
 # ============================================
 # 🔑 API Key
@@ -68,6 +95,71 @@ if "current_page" not in st.session_state:
     st.session_state.current_page = "home"
 if "selected_product" not in st.session_state:
     st.session_state.selected_product = None
+if "show_add_form" not in st.session_state:
+    st.session_state.show_add_form = False
+
+# ============================================
+# ➕ 添加产品表单
+# ============================================
+def render_add_product_form():
+    """渲染添加产品表单"""
+    st.title("➕ 添加新产品")
+    
+    if st.button("← 返回首页"):
+        st.session_state.show_add_form = False
+        st.rerun()
+    
+    with st.form("add_product_form", clear_on_submit=False):
+        st.subheader("📝 产品信息")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            product_name = st.text_input("产品名称 *", placeholder="例如：MyNewApp")
+            description = st.text_input("产品描述", placeholder="例如：AI 工具")
+        
+        with col2:
+            image_url = st.text_input("产品图片 URL", placeholder="https://...")
+            tiktok_username = st.text_input("TikTok 账号名 *", placeholder="例如：myapp")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submit = st.form_submit_button("✅ 添加产品", type="primary", use_container_width=True)
+        with col2:
+            cancel = st.form_submit_button("❌ 取消", use_container_width=True)
+        
+        if cancel:
+            st.session_state.show_add_form = False
+            st.rerun()
+        
+        if submit:
+            if not product_name or not tiktok_username:
+                st.error("❌ 请填写产品名称和 TikTok 账号名")
+            elif product_name in PRODUCTS_CONFIG:
+                st.error(f"❌ 产品 '{product_name}' 已存在")
+            else:
+                # 添加新产品
+                PRODUCTS_CONFIG[product_name] = {
+                    "image": image_url if image_url else "https://via.placeholder.com/300/4A90E2/FFFFFF?text=" + product_name,
+                    "description": description if description else "暂无描述",
+                    "accounts": {
+                        "TikTok": {
+                            "username": tiktok_username,
+                            "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v2",
+                            "param_name": "unique_id"
+                        }
+                    }
+                }
+                
+                # 保存配置
+                if save_products_config(PRODUCTS_CONFIG):
+                    st.success(f"✅ 产品 '{product_name}' 添加成功！")
+                    st.info("🔄 正在返回首页...")
+                    st.session_state.show_add_form = False
+                    st.rerun()
+                else:
+                    st.error("❌ 保存配置失败")
 
 # ============================================
 # 🏠 首页：产品总览
@@ -75,6 +167,13 @@ if "selected_product" not in st.session_state:
 def render_home_page():
     st.title("📊 社媒产品监控系统")
     st.markdown("*监控多产品社媒数据*")
+    
+    # 添加产品按钮
+    col1, col2 = st.columns([5, 1])
+    with col2:
+        if st.button("➕ 添加产品", use_container_width=True):
+            st.session_state.show_add_form = True
+            st.rerun()
     
     # 产品卡片网格
     cols = st.columns(min(3, len(PRODUCTS_CONFIG)))
@@ -84,22 +183,33 @@ def render_home_page():
             with st.container(border=True):
                 # 产品图片
                 try:
-                    st.image(config["image"], use_container_width=True)
+                    if config.get("image"):
+                        st.image(config["image"], use_container_width=True)
+                    else:
+                        st.write("🖼️")
                 except:
                     st.write("🖼️")
                 
                 # 产品名称
                 st.subheader(product_name)
-                st.caption(config["description"])
+                st.caption(config.get("description", ""))
                 
                 # 账号数量
-                st.metric("平台数", len(config["accounts"]))
+                st.metric("平台数", len(config.get("accounts", {})))
                 
-                # 进入按钮
-                if st.button("查看详情", key=f"view_{product_name}", use_container_width=True):
-                    st.session_state.selected_product = product_name
-                    st.session_state.current_page = "product"
-                    st.rerun()
+                # 按钮组
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("查看详情", key=f"view_{product_name}", use_container_width=True):
+                        st.session_state.selected_product = product_name
+                        st.session_state.current_page = "product"
+                        st.rerun()
+                with col2:
+                    if st.button("🗑️ 删除", key=f"delete_{product_name}", use_container_width=True):
+                        if product_name in PRODUCTS_CONFIG:
+                            del PRODUCTS_CONFIG[product_name]
+                            save_products_config(PRODUCTS_CONFIG)
+                            st.rerun()
 
 # ============================================
 # 📱 产品详情页
@@ -107,7 +217,7 @@ def render_home_page():
 def render_product_page():
     product_name = st.session_state.selected_product
     
-    # ✅ 关键修复：验证产品是否存在
+    # 验证产品是否存在
     if not product_name or product_name not in PRODUCTS_CONFIG:
         st.warning("⚠️ 产品不存在或已删除")
         if st.button("← 返回首页"):
@@ -127,7 +237,7 @@ def render_product_page():
             st.rerun()
     
     st.title(f"📱 {product_name}")
-    st.markdown(f"*{config['description']}*")
+    st.markdown(f"*{config.get('description', '')}*")
     
     # 获取所有平台数据
     st.subheader("📊 各平台数据总览")
@@ -136,7 +246,7 @@ def render_product_page():
     platform_data = {}
     
     # 获取 TikTok 数据
-    if "TikTok" in config["accounts"]:
+    if "TikTok" in config.get("accounts", {}):
         tiktok_config = config["accounts"]["TikTok"]
         username = tiktok_config["username"]
         
@@ -242,13 +352,10 @@ def render_product_page():
 def main():
     api_key = get_api_key()
     
-    # ✅ 关键修复：验证页面状态
-    if st.session_state.current_page == "product":
-        if st.session_state.selected_product not in PRODUCTS_CONFIG:
-            st.session_state.current_page = "home"
-            st.session_state.selected_product = None
-    
-    if st.session_state.current_page == "home":
+    # 页面路由
+    if st.session_state.get("show_add_form", False):
+        render_add_product_form()
+    elif st.session_state.current_page == "home":
         render_home_page()
     elif st.session_state.current_page == "product":
         render_product_page()
