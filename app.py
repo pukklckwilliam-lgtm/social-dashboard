@@ -1,23 +1,20 @@
-# 🎯 社媒数据监控看板 - 精准解析版 (基于 TikHub 真实数据)
-# 作者：AI 助手 | 版本：2.0
+# 🎯 社媒数据监控看板 - 修复版
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
 
-# 页面配置
 st.set_page_config(page_title="📊 社媒数据监控看板", layout="wide", page_icon="📈")
 
-# 侧边栏：配置
-st.sidebar.header("⚙️ 设置")
+# 侧边栏配置
+st.sidebar.title("⚙️ 设置")
 api_key = st.sidebar.text_input("TikHub API Key", type="password", help="在 TikHub 后台获取")
 platform = st.sidebar.selectbox("平台", ["tiktok", "instagram", "facebook", "youtube", "twitter"])
 username = st.sidebar.text_input("账号用户名", placeholder="例如：photorevive.ai")
-count = st.sidebar.slider("获取视频数量", 5, 30, 10)
 
 # 主界面
 st.title("📊 社媒数据监控看板")
-st.markdown(f"*当前监控：**{platform}** / **{username}** *")
+st.markdown(f"*当前监控：**{platform} / @{username}** *")
 
 # 获取数据按钮
 if st.button("🚀 获取最新数据", type="primary", use_container_width=True):
@@ -30,25 +27,31 @@ if st.button("🚀 获取最新数据", type="primary", use_container_width=True
     
     with st.spinner(f'正在从 TikHub 抓取 {username} 的数据...'):
         try:
-            # 构建请求
-            url = f"https://api.tikhub.io/api/v1/{platform}/app/v3/fetch_user_post_videos_v3"
+            # 构建请求 URL - 使用 GET 方法
+            base_url = "https://api.tikhub.io"
+            endpoint = f"/api/v1/{platform}/app/v3/fetch_user_post_videos_v3"
+            url = base_url + endpoint
+            
+            # 请求头
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
-            payload = {
-                "unique_id": username if platform == "tiktok" else "username", # TikTok 通常用 unique_id
-                "count": count
+            
+            # 请求参数 - GET 请求使用 params
+            params = {
+                "unique_id": username if platform == "tiktok" else username,
+                "count": 10
             }
             
-            # 发送请求
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            # 使用 GET 请求（修复 405 错误）
+            response = requests.get(url, params=params, headers=headers, timeout=30)
             
             # 检查响应
             if response.status_code == 200:
                 result = response.json()
                 
-                # 检查业务状态码 (TikHub 通常在 code 字段返回 200)
+                # 检查业务状态码
                 if result.get('code') == 200 or result.get('status_code') == 0:
                     st.success("✅ 数据获取成功！")
                     
@@ -65,7 +68,6 @@ if st.button("🚀 获取最新数据", type="primary", use_container_width=True
                     for video in video_list:
                         stats = video.get('statistics', {})
                         author = video.get('author', {})
-                        video_info = video.get('video', {})
                         
                         # 转换时间戳
                         create_time = video.get('create_time', 0)
@@ -134,4 +136,4 @@ if st.button("🚀 获取最新数据", type="primary", use_container_width=True
 
 # 页脚
 st.markdown("---")
-st.caption("🛠️  powered by TikHub API & Streamlit | 数据仅供参考")
+st.caption("🛠️ powered by TikHub API & Streamlit | 数据仅供参考")
