@@ -1,151 +1,167 @@
-# 🎯 社媒数据监控看板 - 自动保存 API Key 版
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+import json
 
-st.set_page_config(page_title="📊 社媒监控看板", layout="wide", page_icon="📈")
+# 页面配置
+st.set_page_config(page_title="📊 TikHub 社媒监控看板", layout="wide", page_icon="📈")
 
-# 侧边栏配置
-st.sidebar.title("⚙️ 设置")
-
-# 优先从 secrets 读取 API Key，如果没有则使用输入框
-if "tikhub_api_key" in st.secrets:
-    api_key = st.secrets["tikhub_api_key"]
-    st.sidebar.success("✅ API Key 已自动加载")
-else:
-    api_key = st.sidebar.text_input("TikHub API Key", type="password", help="输入后会自动保存")
-    if api_key:
-        st.session_state["api_key"] = api_key
-        st.sidebar.success("✅ API Key 已保存（本次会话）")
-
-# 如果没有 API Key，尝试从 session_state 读取
-if not api_key and "api_key" in st.session_state:
-    api_key = st.session_state["api_key"]
-
-# 主界面
-st.title("📊 社媒数据监控看板")
-st.markdown("*支持 TikTok • Instagram • Facebook • YouTube • X*")
-
-# 输入区域
-col1, col2 = st.columns(2)
-with col1:
-    platform = st.selectbox("平台", ["tiktok", "instagram", "facebook", "youtube", "twitter"])
-with col2:
-    username = st.text_input("账号用户名", placeholder="例如：photorevive.ai")
-
-# 获取数据按钮
-if st.button("🚀 获取最新数据", type="primary", use_container_width=True):
-    if not api_key:
-        st.error("❌ 请先在左侧输入 API Key")
-        st.stop()
-    if not username:
-        st.error("❌ 请输入账号用户名")
-        st.stop()
+# --- 1. 安全获取 API Key 的逻辑 ---
+def get_api_key():
+    # 优先尝试从 Streamlit Secrets (保险箱) 读取
+    if "tikhub_api_key" in st.secrets:
+        return st.secrets["tikhub_api_key"]
     
-    with st.spinner(f'正在从 TikHub 抓取 {username} 的数据...'):
-        try:
-            # 构建请求
-            url = f"https://api.tikhub.io/api/v1/{platform}/app/v3/fetch_user_post_videos_v3"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "unique_id": username if platform == "tiktok" else username,
-                "count": 10
-            }
+    # 如果 Secrets 里没有，尝试从侧边栏输入框读取
+    # 为了安全，我们不在代码里硬编码 Key
+    with st.sidebar:
+        st.header("⚙️ 设置")
+        api_key_input = st.text_input("TikHub API Key", type="password", help="如果在上方配置了 Secrets，这里可以留空")
+        
+        if api_key_input:
+            return api_key_input
+        
+    return None
+
+# --- 2. 数据清洗与展示逻辑 ---
+def fetch_and_display_data(api_key, username):
+    url = "https://api.tikhub.io/api/v1/tiktok/app/v3/fetch_user_post_videos_v3"
+    
+    # 注意：TikHub 的 API 有时返回的 JSON key 带有空格，我们需要处理一下
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "unique_id": username,
+        "count": 10  # 每次获取 10 条
+    }
+
+    try:
+        with st.spinner(f'正在抓取 @{username} 的数据...'):
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
             
-            # 发送请求
-            response = requests.get(url, params=payload, headers=headers, timeout=30)
-            
-            # 检查响应
             if response.status_code == 200:
                 result = response.json()
                 
+                # 🔧 关键修复：清洗 JSON 键名中的空格 (例如 "code " -> "code")
+                # 这是为了防止 API 返回格式不规范导致代码报错
+                def clean_keys(obj):
+                    if isinstance(obj, dict):
+                        return {k.strip(): clean_keys(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [clean_keys(item) for item in obj]
+                    else:
+                        return obj
+                
+                clean_result = clean_keys(result)
+
                 # 检查业务状态码
-                if result.get('code') == 200 or result.get('status_code') == 0:
+                if clean_result.get('code') == 200:
                     st.success("✅ 数据获取成功！")
                     
-                    # 解析数据
-                    data_content = result.get('data', {})
+                    # 提取视频列表
+                    data_content = clean_result.get('data', {})
                     video_list = data_content.get('aweme_list', [])
                     
                     if not video_list:
-                        st.warning("⚠️ 未找到视频数据，请检查账号是否正确或是否为私密账号")
-                        st.stop()
-                    
-                    # 构建 DataFrame
+                        st.warning("⚠️ 未找到视频数据，请检查账号是否正确。")
+                        return
+
+                    # --- 数据解析与表格化 ---
                     rows = []
+                    total_stats = {'play': 0, 'like': 0, 'comment': 0, 'share': 0}
+                    
                     for video in video_list:
                         stats = video.get('statistics', {})
                         author = video.get('author', {})
                         
-                        # 转换时间戳
+                        # 时间转换
                         create_time = video.get('create_time', 0)
                         date_str = datetime.fromtimestamp(create_time).strftime('%Y-%m-%d %H:%M')
                         
-                        row = {
+                        # 提取核心指标
+                        play_count = stats.get('play_count', 0)
+                        digg_count = stats.get('digg_count', 0)
+                        comment_count = stats.get('comment_count', 0)
+                        share_count = stats.get('share_count', 0)
+                        
+                        # 累加总数
+                        total_stats['play'] += play_count
+                        total_stats['like'] += digg_count
+                        total_stats['comment'] += comment_count
+                        total_stats['share'] += share_count
+                        
+                        rows.append({
                             '发布时间': date_str,
                             '视频描述': (video.get('desc', '')[:50] + '...') if video.get('desc') else '无描述',
-                            '播放量': stats.get('play_count', 0),
-                            '点赞数': stats.get('digg_count', 0),
-                            '评论数': stats.get('comment_count', 0),
-                            '分享数': stats.get('share_count', 0),
-                            '收藏数': stats.get('collect_count', 0),
-                            '视频链接': video.get('share_url', ''),
-                            '作者昵称': author.get('nickname', ''),
-                            '作者 ID': author.get('unique_id', '')
-                        }
-                        rows.append(row)
+                            '播放量': play_count,
+                            '点赞数': digg_count,
+                            '评论数': comment_count,
+                            '分享数': share_count,
+                            '视频链接': f"[查看视频]({video.get('share_url', '')})"
+                        })
                     
                     df = pd.DataFrame(rows)
                     
-                    # 显示核心指标
-                    st.subheader("📈 核心数据概览")
-                    col1, col2, col3, col4 = st.columns(4)
-                    total_play = df['播放量'].sum()
-                    total_like = df['点赞数'].sum()
-                    total_comment = df['评论数'].sum()
-                    avg_play = int(df['播放量'].mean())
+                    # --- 界面展示 ---
                     
-                    col1.metric("总播放量", f"{total_play:,}")
-                    col2.metric("总点赞数", f"{total_like:,}")
-                    col3.metric("总评论数", f"{total_comment:,}")
-                    col4.metric("平均播放", f"{avg_play:,}")
+                    # 1. 核心数据概览 (Metrics)
+                    st.subheader(f"📈 @{username} 的核心数据概览 (最近 10 条视频)")
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("总播放量", f"{total_stats['play']:,}")
+                    m2.metric("总点赞数", f"{total_stats['like']:,}")
+                    m3.metric("总评论数", f"{total_stats['comment']:,}")
+                    m4.metric("总分享数", f"{total_stats['share']:,}")
                     
-                    # 显示数据表格
-                    st.subheader("📋 视频数据明细")
-                    st.dataframe(df, use_container_width=True)
+                    st.divider()
                     
-                    # 下载按钮
-                    csv = df.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 下载 CSV 数据",
-                        data=csv,
-                        file_name=f'{platform}_{username}_{datetime.now().strftime("%Y%m%d")}.csv',
-                        mime='text/csv',
-                    )
+                    # 2. 详细数据表格
+                    st.subheader("📋 视频详细列表")
+                    st.dataframe(df, use_container_width=True, hide_index=True)
                     
-                    # 简单图表
-                    st.subheader("📊 视频表现图表")
-                    chart_col1, chart_col2 = st.columns(2)
-                    with chart_col1:
+                    # 3. 简单图表
+                    st.subheader("📊 视频表现趋势")
+                    col_chart1, col_chart2 = st.columns(2)
+                    with col_chart1:
                         st.bar_chart(df.set_index('发布时间')['播放量'])
-                    with chart_col2:
+                    with col_chart2:
                         st.bar_chart(df.set_index('发布时间')['点赞数'])
-                    
-                else:
-                    st.error(f"❌ API 返回错误：{result.get('message', '未知错误')}")
-                    st.json(result)
-            else:
-                st.error(f"❌ 请求失败：状态码 {response.status_code}")
-                st.text(response.text[:500])
-                
-        except Exception as e:
-            st.error(f"❌ 程序错误：{str(e)}")
-            st.info("💡 建议：检查 API Key 是否正确，或联系支持团队")
 
-# 页脚
-st.markdown("---")
-st.caption("🛠️ powered by TikHub API & Streamlit | 数据仅供参考")
+                else:
+                    st.error(f"❌ API 返回错误：{clean_result.get('message', '未知错误')}")
+                    with st.expander("查看原始返回数据"):
+                        st.json(clean_result)
+            else:
+                st.error(f"❌ 请求失败：HTTP {response.status_code}")
+                st.text(response.text[:200])
+                
+    except Exception as e:
+        st.error(f"❌ 程序发生错误：{str(e)}")
+        st.info("💡 提示：请检查 API Key 是否正确，或者网络连接是否正常。")
+
+# --- 主程序入口 ---
+def main():
+    st.title("📊 TikHub 社媒数据监控看板")
+    st.markdown("*支持 TikTok 数据深度分析 | 自动保存配置*")
+    
+    # 获取 API Key
+    api_key = get_api_key()
+    
+    if not api_key:
+        st.warning("⚠️ **请先配置 API Key！**\n\n为了安全且不用每次输入，建议按照以下步骤操作：\n1. 点击左侧侧边栏（如果没有显示，点击左上角 `<<`）。\n2. 在 Streamlit Cloud 后台的 **Secrets** 中配置 `tikhub_api_key`。\n3. 或者暂时在左侧输入框输入 Key（刷新页面后需重输）。")
+        st.stop()
+    
+    # 输入账号
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        username = st.text_input("输入 TikTok 用户名 (不带 @)", placeholder="例如：photorevive.ai", value="photorevive.ai")
+    with col2:
+        st.write("") # 占位
+        st.write("") # 占位
+        if st.button("🚀 开始监控", type="primary", use_container_width=True):
+            fetch_and_display_data(api_key, username)
+
+if __name__ == "__main__":
+    main()
