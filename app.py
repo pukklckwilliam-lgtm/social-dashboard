@@ -1,9 +1,7 @@
-# 🎯 多产品社媒监控系统 - TikTok 完整版
+# 🎯 多产品社媒监控系统 - TikTok 完整版（无 plotly 依赖）
 import streamlit as st
 import requests
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
 
 st.set_page_config(page_title="📊 社媒监控系统", layout="wide", page_icon="📱")
@@ -109,7 +107,7 @@ def render_home_page():
                 st.metric("平台数", len(config["accounts"]))
                 
                 # 进入按钮
-                if st.button(" 查看详情", key=f"view_{product_name}", use_container_width=True):
+                if st.button("查看详情", key=f"view_{product_name}", use_container_width=True):
                     st.session_state.selected_product = product_name
                     st.session_state.current_page = "product"
                     st.rerun()
@@ -177,20 +175,19 @@ def render_product_page():
                     # 主页链接
                     st.markdown(f"**🔗 [访问 TikTok 主页](https://tiktok.com/@{username})**")
                     
-                    # 粉丝分布饼图
+                    # 粉丝分布饼图（用 Streamlit 内置）
                     st.divider()
                     st.subheader("📈 粉丝分布")
                     
-                    # 模拟数据（实际应该从多个平台获取）
-                    pie_data = {
+                    # 创建饼图数据
+                    pie_data = pd.DataFrame({
                         "平台": ["TikTok", "其他平台"],
                         "粉丝数": [platform_data['TikTok']['followers'], 0]
-                    }
-                    fig = px.pie(pie_data, values='粉丝数', names='平台', 
-                                title='粉丝分布（待补充其他平台）')
-                    st.plotly_chart(fig, use_container_width=True)
+                    })
+                    st.write("💡 待补充其他平台数据后显示完整分布")
+                    st.dataframe(pie_data, use_container_width=True, hide_index=True)
                     
-                    # 视频数据柱状图
+                    # 视频数据柱状图（用 Streamlit 内置）
                     st.divider()
                     st.subheader("📊 视频表现")
                     
@@ -205,16 +202,17 @@ def render_product_page():
                         })
                     
                     df = pd.DataFrame(video_stats)
-                    fig_bar = px.bar(df, x='视频', y='播放量', 
-                                    title='最近10个视频播放量')
-                    st.plotly_chart(fig_bar, use_container_width=True)
+                    st.bar_chart(df.set_index('视频')['播放量'], use_container_width=True)
+                    
+                    # 点赞数图表
+                    st.bar_chart(df.set_index('视频')['点赞数'], use_container_width=True)
                     
                     # 视频封面墙
                     st.divider()
                     st.subheader("🎬 视频列表")
                     
                     video_cols = st.columns(3)
-                    for idx, video in enumerate(video_list[:9]):  # 显示前9个
+                    for idx, video in enumerate(video_list[:9]):  # 显示前 9 个
                         with video_cols[idx % 3]:
                             # 视频封面
                             cover_url = video.get("video", {}).get("cover", {}).get("url_list", [""])[0]
