@@ -1,238 +1,181 @@
-# 🎯 多产品社媒监控系统 - 最终修复版
+# 🎯 多产品社媒监控系统 - 调试版（显示请求详情）
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
 import json
 
-# ============================================
-# 📦 产品配置
-# ============================================
-PRODUCTS_CONFIG = {
-    "PhotoRevive.AI": {
-        "image": "https://p16-common-sign.tiktokcdn-us.com/tos-useast8-avt-0068-tx2/a62a32b54c026de51797e4862fd4ecd2~tplv-tiktokx-cropcenter:300:300.webp",
-        "description": "AI 照片修复工具",
-        "accounts": {
-            "TikTok": {
-                "username": "photorevive.ai",
-                "api_endpoint": "/api/v1/tiktok/app/v3/fetch_user_post_videos_v3",
-                "param_name": "unique_id",
-                "method": "GET"
-            },
-            "Instagram": {
-                "username": "123456789",
-                "api_endpoint": "/api/v1/instagram/v3/get_user_profile",
-                "param_name": "user_id",
-                "method": "GET"
-            }
-        }
-    }
-}
+st.set_page_config(page_title="🔍 TikTok 调试工具", layout="wide")
 
 # ============================================
-# 🔑 API Key 管理（最终修复版）
+# 🔑 API Key 管理
 # ============================================
 def get_api_key():
-    """安全获取 API Key"""
-    
-    # 尝试从 Secrets 读取
     try:
         if hasattr(st, 'secrets') and "tikhub_api_key" in st.secrets:
             key = st.secrets["tikhub_api_key"]
             if key and isinstance(key, str) and key.strip():
                 return key.strip()
-    except Exception:
+    except:
         pass
     
-    # 从侧边栏读取
     with st.sidebar:
-        st.header("🔑 API 配置")
-        api_key = st.text_input("TikHub API Key", type="password",
-                               placeholder="vpA5E99O82r...",
-                               help="在 TikHub 后台获取")
-        
+        api_key = st.text_input("🔑 TikHub API Key", type="password", placeholder="vpA5...")
         if api_key and api_key.strip():
             api_key = api_key.strip()
             st.session_state["api_key"] = api_key
-            st.sidebar.success("✅ 已保存")
             return api_key
-        elif "api_key" in st.session_state and st.session_state["api_key"]:
+        elif "api_key" in st.session_state:
             return st.session_state["api_key"]
-    
     return None
 
 # ============================================
-# 📡 数据获取函数
+# 📡 调试版数据获取函数
 # ============================================
-def fetch_account_data(api_key, platform, username, endpoint, param_name, method="GET"):
-    """获取账号数据"""
+def fetch_with_debug(api_key, username, endpoint, param_name, method="GET"):
+    """带详细调试信息的请求函数"""
     
-    # ✅ 关键检查
-    if not api_key or api_key in ["None", "null", ""]:
-        return {"success": False, "error": "API Key 无效"}
-    
-    # ✅ 修复 URL 拼接
     url = f"https://api.tikhub.io{endpoint}"
     
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    # 清理参数值
+    clean_username = username.strip().lstrip('@')
     
-    params = {param_name: username, "count": 10}
+    # 尝试两种参数格式
+    test_configs = [
+        {
+            "name": "方式1: GET + Query Params",
+            "method": "GET",
+            "url": url,
+            "params": {param_name: clean_username, "count": 10},
+            "json": None,
+            "headers": {"Authorization": f"Bearer {api_key}"}
+        },
+        {
+            "name": "方式2: POST + JSON Body",
+            "method": "POST", 
+            "url": url,
+            "params": None,
+            "json": {param_name: clean_username, "count": 10},
+            "headers": {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        },
+        {
+            "name": "方式3: POST + 额外参数",
+            "method": "POST",
+            "url": url,
+            "params": None,
+            "json": {
+                param_name: clean_username,
+                "count": 10,
+                "cursor": 0,
+                "region": "US"
+            },
+            "headers": {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        }
+    ]
     
-    try:
-        if method.upper() == "POST":
-            response = requests.post(url, json=params, headers=headers, timeout=30)
-        else:
-            response = requests.get(url, params=params, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('code') == 200 or 'data' in result:
-                return {"success": True, "data": result}
-            else:
-                return {"success": False, "error": result.get('message', 'API错误')}
-        else:
-            return {"success": False, "error": f"HTTP {response.status_code}", 
-                    "details": response.text[:300]}
-    except Exception as e:
-        return {"success": False, "error": f"请求异常: {str(e)}"}
-
-# ============================================
-# 🎨 页面状态
-# ============================================
-if "current_page" not in st.session_state:
-    st.session_state.current_page = "home"
-if "selected_product" not in st.session_state:
-    st.session_state.selected_product = None
-
-# ============================================
-# 🏠 首页
-# ============================================
-def render_home_page():
-    st.title("📊 社媒产品监控系统")
+    results = []
     
-    cols = st.columns(min(3, len(PRODUCTS_CONFIG)))
-    for idx, (name, config) in enumerate(PRODUCTS_CONFIG.items()):
-        with cols[idx % 3]:
-            with st.container(border=True):
-                st.image(config["image"], use_container_width=True)
-                st.subheader(name)
-                st.caption(config["description"])
-                st.metric("平台数", len(config["accounts"]))
-                
-                if st.button("查看详情", key=f"view_{name}", use_container_width=True):
-                    st.session_state.selected_product = name
-                    st.session_state.current_page = "product"
-                    st.rerun()
-
-# ============================================
-# 📱 产品详情页
-# ============================================
-def render_product_page():
-    product_name = st.session_state.selected_product
-    config = PRODUCTS_CONFIG[product_name]
-    
-    if st.button("← 返回首页"):
-        st.session_state.current_page = "home"
-        st.session_state.selected_product = None
-        st.rerun()
-    
-    st.title(f"📱 {product_name}")
-    
-    platforms = list(config["accounts"].keys())
-    selected_platform = st.selectbox("选择平台", platforms)
-    
-    if selected_platform:
-        account_config = config["accounts"][selected_platform]
-        
-        api_key = get_api_key()
-        
-        # ✅ 关键：如果 API Key 无效，直接提示
-        if not api_key:
-            st.error("❌ 请先在侧边栏输入有效的 API Key")
-            st.stop()
-        
-        username = st.text_input("用户名/ID", value=account_config["username"])
-        
-        if st.button("🚀 获取数据", type="primary"):
-            with st.spinner(f'正在获取 {selected_platform} 数据...'):
-                data = fetch_account_data(
-                    api_key,
-                    selected_platform,
-                    username,
-                    account_config["api_endpoint"],
-                    account_config["param_name"],
-                    account_config.get("method", "GET")
-                )
-                
-                if not data.get("success"):
-                    st.error(f"❌ {data.get('error')}")
-                    if 'details' in data:
-                        with st.expander("🔍 详细错误"):
-                            st.code(data['details'])
-                else:
-                    st.success("✅ 成功！")
-                    
-                    if selected_platform == "TikTok":
-                        display_tiktok_data(data["data"], username)
+    for config in test_configs:
+        with st.expander(f"📡 {config['name']}", expanded=False):
+            st.write(f"**URL:** `{config['url']}`")
+            st.write(f"**方法:** {config['method']}")
+            st.write(f"**参数:** {config['params'] or config['json']}")
+            
+            if st.button(f"🚀 测试 {config['name']}", key=f"btn_{config['name']}"):
+                try:
+                    if config['method'] == "GET":
+                        response = requests.get(
+                            config['url'],
+                            params=config['params'],
+                            headers=config['headers'],
+                            timeout=30
+                        )
                     else:
-                        with st.expander("📄 原始数据"):
-                            st.json(data["data"])
+                        response = requests.post(
+                            config['url'],
+                            json=config['json'],
+                            headers=config['headers'],
+                            timeout=30
+                        )
+                    
+                    st.write(f"✅ **状态码:** {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        st.success("🎉 请求成功！")
+                        st.json(result)
+                        
+                        # 自动解析视频数据
+                        if 'data' in result and 'aweme_list' in result['data']:
+                            videos = result['data']['aweme_list']
+                            st.write(f"📹 找到 {len(videos)} 个视频！")
+                            return {"success": True, "data": result}
+                    
+                    else:
+                        st.error(f"❌ HTTP {response.status_code}")
+                        st.code(response.text[:500])
+                    
+                    results.append({
+                        "name": config['name'],
+                        "status": response.status_code,
+                        "response": response.text[:200]
+                    })
+                    
+                except Exception as e:
+                    st.error(f"❌ 异常: {e}")
+                    results.append({"name": config['name'], "error": str(e)})
+    
+    return {"success": False, "error": "所有方式都失败", "details": results}
 
 # ============================================
-# 📊 TikTok 展示
+# 🎨 主界面
 # ============================================
-def display_tiktok_data(data, username):
-    aweme_list = data.get("data", {}).get("aweme_list", [])
-    
-    if not aweme_list:
-        st.warning("⚠️ 未找到视频")
-        return
-    
-    total_stats = {"play": 0, "like": 0, "comment": 0, "share": 0}
-    for video in aweme_list:
-        stats = video.get("statistics", {})
-        total_stats["play"] += stats.get("play_count", 0)
-        total_stats["like"] += stats.get("digg_count", 0)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("总播放", f"{total_stats['play']:,}")
-    with col2:
-        st.metric("总点赞", f"{total_stats['like']:,}")
-    
-    st.divider()
-    
-    video_cols = st.columns(3)
-    for idx, video in enumerate(aweme_list[:6]):
-        with video_cols[idx % 3]:
-            cover = video.get("video", {}).get("cover", {}).get("url_list", [""])[0]
-            if cover:
-                st.image(cover, use_container_width=True)
-            desc = (video.get("desc", "")[:40] + "...") if video.get("desc") else "无描述"
-            st.caption(desc)
-            stats = video.get("statistics", {})
-            st.write(f"👁 {stats.get('play_count', 0):,} | ❤ {stats.get('digg_count', 0):,}")
+st.title("🔍 TikTok API 调试工具")
+st.markdown("*测试不同请求方式，找到正确的参数格式*")
 
-# ============================================
-# 🚀 主程序
-# ============================================
-def main():
-    api_key = get_api_key()
-    
-    # ✅ 全局检查
-    if not api_key:
-        st.warning("⚠️ 请先配置 API Key")
-    
-    if st.session_state.current_page == "home":
-        render_home_page()
-    elif st.session_state.current_page == "product":
-        render_product_page()
+api_key = get_api_key()
 
-if __name__ == "__main__":
-    main()
+if not api_key:
+    st.warning("⚠️ 请先在侧边栏输入 API Key")
+    st.stop()
 
-st.markdown("---")
-st.caption("🛠️ powered by TikHub API | 最终修复版")
+st.success(f"✅ API Key 已加载: `{api_key[:20]}...{api_key[-10:]}`")
+
+# 输入区域
+col1, col2 = st.columns(2)
+with col1:
+    username = st.text_input("TikTok 用户名", value="photorevive.ai")
+with col2:
+    param_name = st.selectbox("参数名", ["unique_id", "username", "user_id"], index=0)
+
+endpoint = st.text_input("API 端点", value="/api/v1/tiktok/app/v3/fetch_user_post_videos_v3")
+
+st.info("""
+💡 **调试建议：**
+1. 先测试"方式1: GET + Query Params"
+2. 如果 400，测试"方式2: POST + JSON Body"  
+3. 如果还失败，测试"方式3: POST + 额外参数"
+4. 把成功的配置截图发给我，我帮你固化到代码中
+""")
+
+# 执行测试
+if st.button("🔬 开始调试测试", type="primary"):
+    with st.spinner("正在测试所有请求方式..."):
+        result = fetch_with_debug(api_key, username, endpoint, param_name)
+        
+        if result.get("success"):
+            st.success("🎉 找到正确的方式了！")
+        else:
+            st.warning("⚠️ 所有方式都失败，请截图发给我")
+            st.write("测试结果汇总：")
+            for r in result.get("details", []):
+                st.write(f"- {r['name']}: {r.get('status', r.get('error'))}")
+
+# 官方文档链接
+st.divider()
+st.markdown("""
+📚 **参考文档：**
+- [TikHub API Docs](https://docs.tikhub.io/)
+- [API Token 介绍](https://docs.tikhub.io/4579297m0)
+- [Discord 支持](https://discord.gg/aMEAS8Xsvz)
+""")
