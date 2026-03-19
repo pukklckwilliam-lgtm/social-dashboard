@@ -185,7 +185,7 @@ def display_data(result, data_type):
 
 # 页脚
 st.markdown("---")
-st.caption("🛠️ powered by TikHub API | 支持多接口 • 多平台")uests
+st.caption("🛠️ powered by TikHub API | 支持多接口 • 多平台")
 import pandas as pd
 from datetime import datetime
 
