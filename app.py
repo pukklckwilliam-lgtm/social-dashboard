@@ -18,7 +18,7 @@ def get_api_key():
     # 从侧边栏读取
     with st.sidebar:
         api_key = st.text_input("🔑 TikHub API Key", type="password", 
-                               value="vpA5E99O82r1tnSpPr...LOwkiJKgm9arlJ1AH7g2ulb9jmm12uGiejcCi/aA==",
+                               value="vpA5E99O82r1tnSpPrLOwkiJKgm9arlJ1AH7g2ulb9jmm12uGiejcCi/aA==",
                                help="在 TikHub 后台获取")
         if api_key:
             st.session_state["api_key"] = api_key
