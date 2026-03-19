@@ -1,139 +1,80 @@
-# 🎯 Social Media Dashboard - Final Working Version
+# 🎯 Social Media Dashboard - Download Version
 import streamlit as st
 import requests
-import pandas as pd
+import json
+from datetime import datetime
 
 st.set_page_config(page_title="📊 Social Dashboard", layout="wide")
 
 # Sidebar
 st.sidebar.title("⚙️ Settings")
-api_key = st.sidebar.text_input("TikHub API Key", type="password", value="")
-st.sidebar.success("✅ API Key is valid!" if api_key else "")
+api_key = st.sidebar.text_input("TikHub API Key", type="password")
 
 # Main
-st.title("📊 Social Media Monitoring Dashboard")
-st.markdown("*Powered by TikHub API*")
+st.title("📊 Social Media Data Downloader")
+st.markdown("*Download full data and send to AI for analysis*")
 
-# Platform selection
-platform = st.selectbox(
-    "Select Platform",
-    ["TikTok", "Instagram", "Facebook", "YouTube", "X (Twitter)"]
-)
+platform = st.selectbox("Platform", ["TikTok", "Instagram", "Facebook", "YouTube", "X"])
+username = st.text_input("Username", "photorevive.ai")
 
-# Platform to endpoint mapping
-platform_map = {
-    "TikTok": "tiktok",
-    "Instagram": "instagram",
-    "Facebook": "facebook",
-    "YouTube": "youtube",
-    "X (Twitter)": "twitter"
-}
-
-# Input
-username = st.text_input("Username", placeholder="e.g., charlidamelio")
-
-if st.button("🔍 Fetch Data", type="primary", use_container_width=True):
+if st.button("📥 Download Data", type="primary"):
     if not api_key:
-        st.error("❌ Please enter your TikHub API Key in the sidebar")
+        st.error("Please enter API Key")
         st.stop()
     if not username:
-        st.error("❌ Please enter a username")
+        st.error("Please enter username")
         st.stop()
     
-    with st.spinner(f"Fetching {platform} data..."):
+    with st.spinner("Fetching data from TikHub..."):
         try:
-            platform_code = platform_map[platform]
+            platform_code = platform.lower()
+            if platform_code == "x":
+                platform_code = "twitter"
             
-            # Try different endpoints based on platform
-            if platform == "TikTok":
-                endpoints = [
-                    f"/api/v1/{platform_code}/web/fetch_user_profile",
-                    f"/api/v1/{platform_code}/app/v3/fetch_user_post_videos_v3"
-                ]
-                param_name = "unique_id"
-            else:
-                endpoints = [
-                    f"/api/v1/{platform_code}/user/info",
-                    f"/api/v1/{platform_code}/app/v3/fetch_user_post_videos_v3"
-                ]
-                param_name = "username"
-            
+            url = f"https://api.tikhub.io/api/v1/{platform_code}/app/v3/fetch_user_post_videos_v3"
             headers = {"Authorization": f"Bearer {api_key}"}
-            params = {param_name: username.strip(), "count": 10}
+            params = {"username": username, "count": 30}
             
-            success = False
-            result = None
-            used_endpoint = None
+            response = requests.get(url, params=params, headers=headers, timeout=60)
             
-            for endpoint in endpoints:
-                url = f"https://api.tikhub.io{endpoint}"
+            if response.status_code == 200:
+                result = response.json()
                 
-                try:
-                    response = requests.get(url, params=params, headers=headers, timeout=30)
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        success = True
-                        used_endpoint = endpoint
-                        break
-                        
-                except Exception as e:
-                    continue
-            
-            if success and result:
-                st.success(f"✅ Success!")
-                st.info(f"Endpoint: {used_endpoint}")
+                # Generate filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{platform_code}_{username}_{timestamp}.json"
                 
-                # Display raw data
-                with st.expander("📄 Raw JSON Data"):
-                    st.json(result)
+                # Pretty print JSON
+                json_str = json.dumps(result, indent=2, ensure_ascii=False)
                 
-                # Parse and display data
-                data = result.get('data', {})
+                # Download button
+                st.download_button(
+                    label="✅ Click to Download JSON File",
+                    data=json_str,
+                    file_name=filename,
+                    mime="application/json"
+                )
                 
-                if isinstance(data, dict):
-                    st.subheader("📋 User Information")
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Username", data.get('unique_id', data.get('username', 'N/A')))
-                    with col2:
-                        st.metric("Nickname", data.get('nickname', data.get('display_name', 'N/A')))
-                    with col3:
-                        st.metric("Verified", "✅" if data.get('verified', False) else "❌")
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Followers", f"{data.get('follower_count', data.get('followers', 0)):,}")
-                    with col2:
-                        st.metric("Following", f"{data.get('following_count', data.get('following', 0)):,}")
-                    with col3:
-                        st.metric("Total Likes", f"{data.get('heart_count', data.get('likes', 0)):,}")
-                    
-                    # Full data
-                    with st.expander("View All Fields"):
-                        st.json(data)
-                    
-                elif isinstance(data, list):
-                    st.subheader(f"📋 Found {len(data)} items")
-                    df = pd.DataFrame(data)
-                    st.dataframe(df, use_container_width=True)
-                    
-                    # Show charts if numeric columns exist
-                    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-                    if numeric_cols:
-                        st.subheader("📈 Charts")
-                        chart_col = st.selectbox("Select column to chart", numeric_cols)
-                        st.bar_chart(df[chart_col])
-                    
+                st.success(f"✅ Data fetched successfully!")
+                st.info(f"📁 File: {filename}")
+                st.write("**Response size:**", len(json_str), "bytes")
+                st.write("**Top-level keys:**", list(result.keys()))
+                
+                st.markdown("""
+                ### 📤 Next Steps:
+                1. Click the download button above
+                2. Save the JSON file
+                3. Send the file to AI assistant
+                4. AI will analyze the structure and optimize the dashboard
+                """)
+                
             else:
-                st.error("❌ Failed to fetch data")
-                st.info("💡 Check: 1) Username is correct 2) Account is public 3) API has permission")
+                st.error(f"❌ Status {response.status_code}")
+                st.text(response.text[:500])
                 
         except Exception as e:
             st.error(f"❌ Error: {type(e).__name__}: {str(e)}")
-            st.info("Please screenshot this and send for help")
 
 # Footer
 st.markdown("---")
-st.caption("🛠️ Built with Streamlit + TikHub API | Auto-refresh every query")
+st.caption("💡 After downloading, share the JSON file for dashboard optimization")
