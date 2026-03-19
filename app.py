@@ -38,13 +38,14 @@ def fetch_tiktok_data(api_key, username):
         "Content-Type": "application/json"
     }
     
-    payload = {
+    params = {
         "unique_id": username,
         "count": 10
     }
     
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        # 使用 GET 请求
+        response = requests.get(url, params=params, headers=headers, timeout=30)
         
         if response.status_code == 200:
             return response.json()
