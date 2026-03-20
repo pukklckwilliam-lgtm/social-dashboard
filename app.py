@@ -1,4 +1,4 @@
-# 🎯 社媒数据抓取系统 - 根据工作流修复版
+# 🎯 社媒数据抓取系统 - 4次循环版
 import streamlit as st
 import requests
 import pandas as pd
@@ -51,10 +51,10 @@ def get_sec_user_id(username):
     return ''
 
 # ============================================
-# 📡 TikTok 数据抓取（根据工作流修复）
+# 📡 TikTok 数据抓取（4次循环版）
 # ============================================
 def fetch_tiktok_data_paginated(username, target_count=30):
-    """分页抓取 TikTok 数据 - 根据工作流修复版"""
+    """分页抓取 TikTok 数据 - 4次循环版"""
     
     # 第1步：获取 sec_user_id
     sec_user_id = get_sec_user_id(username)
@@ -68,7 +68,7 @@ def fetch_tiktok_data_paginated(username, target_count=30):
     all_videos = []
     cursor = "0"
     max_per_request = 20
-    max_loops = 3  # 循环3次 = 60条
+    max_loops = 4  # ✅ 4次循环 = 最多80条
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -77,9 +77,9 @@ def fetch_tiktok_data_paginated(username, target_count=30):
         status_text.text(f"正在抓取第 {loop + 1}/{max_loops} 页...")
         
         params = {
-            "sec_user_id": sec_user_id,  # ✅ 关键：用 sec_user_id
+            "sec_user_id": sec_user_id,
             "count": max_per_request,
-            "max_cursor": cursor,        # ✅ 关键：用 max_cursor
+            "max_cursor": cursor,
             "sort_type": 0
         }
         
@@ -183,7 +183,7 @@ def download_csv(df, filename):
     return csv
 
 # ============================================
-# 🎨 主界面（保持不变）
+# 🎨 主界面
 # ============================================
 def main():
     api_key = get_api_key()
