@@ -91,18 +91,20 @@ def fetch_tiktok_data(username, target_count=30):
 # 📺 YouTube 抓取（修复版 - 使用新API）
 # ============================================
 def fetch_youtube_data(channel_username, target_count=30):
-    """抓取 YouTube 视频 - 使用新API v2"""
+    """抓取 YouTube 视频 - 修复参数格式"""
     
-    # 清理频道名
+    # 🔍 清理频道名：确保格式正确
     clean_channel = channel_username.strip()
-    if not clean_channel.startswith('@') and not clean_channel.startswith('UC'):
-        clean_channel = '@' + clean_channel
+    # 如果不是 UC 开头，自动添加 @
+    if not clean_channel.startswith('UC'):
+        if not clean_channel.startswith('@'):
+            clean_channel = '@' + clean_channel
     
     url = "https://api.tikhub.io/api/v1/youtube/web/get_channel_videos_v2"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     
     all_videos = []
-    next_token = None
+    next_token = None  # ✅ 第一页用 None（不是空字符串！）
     max_loops = 4
     
     progress_bar = st.progress(0)
@@ -111,53 +113,46 @@ def fetch_youtube_data(channel_username, target_count=30):
     for loop in range(max_loops):
         status_text.text(f"正在抓取 YouTube 第 {loop + 1}/{max_loops} 页...")
         
+        # ✅ 严格按文档参数格式
         params = {
-            "channel_id": clean_channel,
-            "contentType": "shorts",  # 抓取短视频
-            "sortBy": "newest",
+            "channel_id": clean_channel,      # @频道名 或 UCxxx
+            "contentType": "shorts",          # ✅ 小写 shorts
+            "sortBy": "newest",               # ✅ 小写 newest
             "lang": "en-US"
         }
         
-        if next_token:
-            params["nextToken"] = next_token
+        # ✅ 关键修复：只有 next_token 有值时才添加参数
+        if next_token and next_token != "None" and next_token != "":
+            params["nextToken"] = next_token  # ✅ 注意大小写：nextToken
         
         try:
             response = requests.get(url, params=params, headers=headers, timeout=30)
-            st.write(f"📡 请求状态：{response.status_code}")
+            
+            # 🔍 调试：打印请求详情
+            if loop == 0:
+                st.write(f"🔍 请求 URL：{response.url}")
+                st.write(f"📋 参数：{params}")
             
             if response.status_code == 200:
                 result = response.json()
-                st.write(f"📦 API 返回 code：{result.get('code')}")
                 
                 if result.get('code') == 200:
-                    # 🔍 关键修复：data 可能是 JSON 字符串
+                    # 🔍 处理 data 可能是 JSON 字符串
                     data = result.get('data')
-                    st.write(f"🔍 data 类型：{type(data)}")
-                    
                     if isinstance(data, str):
                         try:
                             data = json.loads(data)
-                            st.write("✅ 成功解析 data 字符串")
-                        except Exception as e:
-                            st.error(f"❌ 解析 data 失败：{e}")
-                            st.write(f"data 内容：{data[:200]}...")
+                        except:
                             pass
                     
-                    # 获取视频列表
                     video_list = []
                     if isinstance(data, dict):
                         video_list = (
                             data.get('videos', []) or 
                             data.get('items', []) or 
                             data.get('videoList', []) or
-                            data.get('data', []) or
                             []
                         )
-                        st.write(f"🎬 找到 {len(video_list)} 个视频")
-                        
-                        # 显示第一个视频的结构（调试用）
-                        if video_list and loop == 0:
-                            st.expander("🔍 查看第一个视频完整结构", expanded=False).json(video_list[0])
                     
                     if not video_list:
                         status_text.text("✅ 没有更多视频了")
@@ -168,26 +163,20 @@ def fetch_youtube_data(channel_username, target_count=30):
                     status_text.text(f"✅ 已抓取 {len(all_videos)} 条视频")
                     
                     if len(all_videos) >= target_count:
-                        status_text.text(f"✅ 已达到目标数量")
                         break
                     
-                    # 获取下一页 token
-                    next_token = (
-                        data.get('nextToken') or 
-                        data.get('next_page_token') or 
-                        data.get('continuation') or
-                        data.get('continuation_token')
-                    )
-                    if not next_token:
+                    # ✅ 获取下一页 token
+                    next_token = data.get('nextToken')  # ✅ 注意大小写
+                    if not next_token or next_token == "":
                         status_text.text("✅ 已抓取所有可用视频")
                         break
                 else:
                     status_text.text(f"❌ API 错误：{result.get('message', '')}")
-                    st.error(f"错误详情：{result}")
+                    st.error(f"📦 完整响应：{result}")
                     break
             else:
                 status_text.text(f"❌ HTTP {response.status_code}")
-                st.error(f"响应内容：{response.text[:500]}")
+                st.error(f"📦 响应内容：{response.text[:500]}")
                 break
         except Exception as e:
             status_text.text(f"❌ 请求异常：{str(e)}")
@@ -198,7 +187,6 @@ def fetch_youtube_data(channel_username, target_count=30):
     status_text.text(f"✅ YouTube 完成！共抓取 {len(all_videos)} 条视频")
     
     return {"success": True, "videos": all_videos[:target_count], "platform": "YouTube"}
-
 # ============================================
 # 📊 数据解析
 # ============================================
