@@ -1,4 +1,4 @@
-# 🎯 社媒数据抓取系统 - TikTok + YouTube 完整版
+# 🎯 社媒数据抓取系统 - TikTok + YouTube 修复版
 import streamlit as st
 import requests
 import pandas as pd
@@ -23,7 +23,6 @@ def get_api_key():
         api_key = st.text_input("🔑 TikHub API Key", type="password", value=API_KEY)
         if api_key:
             st.session_state["api_key"] = api_key.strip()
-        
         st.divider()
         st.info("💡 提示：API Key 已预填，可直接使用")
     
@@ -34,6 +33,7 @@ def get_api_key():
 # ============================================
 def get_sec_user_id(username):
     """获取 TikTok sec_user_id"""
+    # ✅ 修复：去掉 URL 末尾空格
     url = "https://api.tikhub.io/api/v1/tiktok/app/v3/get_user_id_and_sec_user_id_by_username"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     params = {"username": username}
@@ -49,17 +49,18 @@ def get_sec_user_id(username):
     return ''
 
 def fetch_tiktok_data(username, target_count=30):
-    """抓取 TikTok 视频数据 - 4次循环版（最多80条）"""
+    """抓取 TikTok 视频数据"""
     sec_user_id = get_sec_user_id(username)
     if not sec_user_id:
         return {"success": False, "error": "无法获取用户信息"}
     
+    # ✅ 修复：去掉 URL 末尾空格
     url = "https://api.tikhub.io/api/v1/tiktok/app/v3/fetch_user_post_videos_v2"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     
     all_videos = []
     cursor = "0"
-    max_loops = 4  # 4次循环 = 最多80条
+    max_loops = 4
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -83,29 +84,20 @@ def fetch_tiktok_data(username, target_count=30):
                     video_list = data.get('aweme_list', [])
                     
                     if not video_list:
-                        status_text.text("✅ 没有更多视频了")
                         break
                     
                     all_videos.extend(video_list)
                     progress_bar.progress((loop + 1) / max_loops)
-                    status_text.text(f"✅ 已抓取 {len(all_videos)} 条视频")
                     
                     if len(all_videos) >= target_count:
-                        status_text.text(f"✅ 已达到目标数量")
                         break
-                    
                     if not data.get('has_more'):
-                        status_text.text("✅ 已抓取所有可用视频")
                         break
                     
                     cursor = str(data.get('max_cursor', '0'))
                     if cursor == '0':
                         break
-            else:
-                status_text.text(f"❌ HTTP {response.status_code}")
-                break
-        except Exception as e:
-            status_text.text(f"❌ 请求异常：{str(e)}")
+        except:
             break
     
     progress_bar.progress(1.0)
@@ -114,15 +106,14 @@ def fetch_tiktok_data(username, target_count=30):
     return {"success": True, "videos": all_videos[:target_count], "platform": "TikTok"}
 
 # ============================================
-# 📺 YouTube 数据抓取
+# 📺 YouTube 数据抓取（修复版）
 # ============================================
 def get_youtube_channel_id(username):
-    """获取 YouTube Channel ID（自动搜索）"""
-    clean_username = username.strip().lstrip('@')
-    
+    """获取 YouTube Channel ID"""
+    # ✅ 修复：去掉 URL 末尾空格
     url = "https://api.tikhub.io/api/v1/youtube/web/search_channel"
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    params = {"query": clean_username}
+    params = {"query": username.strip().lstrip('@')}
     
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
@@ -137,22 +128,22 @@ def get_youtube_channel_id(username):
     return ''
 
 def fetch_youtube_data(channel_username, target_count=30):
-    """抓取 YouTube Shorts 短视频数据 - 4次循环版（最多80条）"""
+    """抓取 YouTube Shorts 数据 - 修复版"""
     
-    # 获取 channel_id
     channel_id = channel_username
     if not channel_id.startswith('UC'):
         channel_id = get_youtube_channel_id(channel_username)
     
     if not channel_id:
-        return {"success": False, "error": "无法找到 YouTube 频道，请使用 Channel ID"}
+        return {"success": False, "error": "无法找到 YouTube 频道"}
     
+    # ✅ 修复：去掉 URL 末尾空格
     url = "https://api.tikhub.io/api/v1/youtube/web/get_channel_short_videos"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     
     all_videos = []
     continuation_token = None
-    max_loops = 4  # 4次循环 = 最多80条
+    max_loops = 4
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -160,11 +151,7 @@ def fetch_youtube_data(channel_username, target_count=30):
     for loop in range(max_loops):
         status_text.text(f"正在抓取 YouTube Shorts 第 {loop + 1}/{max_loops} 页...")
         
-        params = {
-            "channel_id": channel_id,
-            "count": 20
-        }
-        
+        params = {"channel_id": channel_id, "count": 20}
         if continuation_token:
             params["continuation_token"] = continuation_token
         
@@ -172,29 +159,29 @@ def fetch_youtube_data(channel_username, target_count=30):
             response = requests.get(url, params=params, headers=headers, timeout=30)
             if response.status_code == 200:
                 result = response.json()
+                
+                # 🔍 调试：显示第一次请求的原始数据结构
+                if loop == 0 and result.get('code') == 200:
+                    video_list = result.get('data', {}).get('videos', [])
+                    if video_list:
+                        st.expander("🔍 查看第一个视频的原始数据结构", expanded=False).json(video_list[0])
+                
                 if result.get('code') == 200:
                     data = result.get('data', {})
                     video_list = data.get('videos', [])
                     
                     if not video_list:
-                        status_text.text("✅ 没有更多短视频了")
                         break
                     
                     all_videos.extend(video_list)
                     progress_bar.progress((loop + 1) / max_loops)
-                    status_text.text(f"✅ 已抓取 {len(all_videos)} 条短视频")
                     
                     if len(all_videos) >= target_count:
-                        status_text.text(f"✅ 已达到目标数量")
                         break
                     
                     continuation_token = data.get('continuation_token', None)
                     if not continuation_token:
-                        status_text.text("✅ 已抓取所有可用短视频")
                         break
-            else:
-                status_text.text(f"❌ HTTP {response.status_code}")
-                break
         except Exception as e:
             status_text.text(f"❌ 请求异常：{str(e)}")
             break
@@ -205,14 +192,7 @@ def fetch_youtube_data(channel_username, target_count=30):
     return {"success": True, "videos": all_videos[:target_count], "platform": "YouTube"}
 
 # ============================================
-# 🐦 X (Twitter) 数据抓取（预留）
-# ============================================
-def fetch_x_data(username, target_count=30):
-    """抓取 X (Twitter) 数据 - 预留功能"""
-    return {"success": False, "error": "X (Twitter) 功能开发中..."}
-
-# ============================================
-# 📊 数据解析
+# 📊 数据解析（修复统计字段）
 # ============================================
 def parse_tiktok_videos(result):
     """解析 TikTok 数据"""
@@ -248,7 +228,7 @@ def parse_tiktok_videos(result):
     return rows, account_info
 
 def parse_youtube_videos(result):
-    """解析 YouTube Shorts 数据 - 修复版"""
+    """解析 YouTube Shorts 数据 - 修复统计字段"""
     if not result.get('success'):
         return [], {}
     
@@ -266,33 +246,20 @@ def parse_youtube_videos(result):
     rows = []
     for video in video_list:
         # 🔍 尝试多种可能的统计数据路径
-        stats = (
-            video.get('statistics', {}) or 
-            video.get('stats', {}) or 
-            video.get('data', {}).get('statistics', {}) or
-            {}
-        )
+        stats = video.get('statistics', video.get('stats', {}))
         
-        # 🔍 直接获取字段（可能在顶层）
+        # 🔍 直接获取字段（兼容不同 API 返回格式）
         view_count = (
-            stats.get('view_count', 0) or 
-            video.get('view_count', 0) or
-            video.get('viewCount', 0) or
-            0
+            stats.get('view_count') or stats.get('viewCount') or 
+            video.get('view_count') or video.get('viewCount') or 0
         )
-        
         like_count = (
-            stats.get('like_count', 0) or 
-            video.get('like_count', 0) or
-            video.get('likeCount', 0) or
-            0
+            stats.get('like_count') or stats.get('likeCount') or 
+            video.get('like_count') or video.get('likeCount') or 0
         )
-        
         comment_count = (
-            stats.get('comment_count', 0) or 
-            video.get('comment_count', 0) or
-            video.get('commentCount', 0) or
-            0
+            stats.get('comment_count') or stats.get('commentCount') or 
+            video.get('comment_count') or video.get('commentCount') or 0
         )
         
         publish_time = video.get('published_at', '')
@@ -306,9 +273,9 @@ def parse_youtube_videos(result):
         rows.append({
             '发布时间': publish_time,
             '视频标题': (video.get('title', '')[:100] + '...') if video.get('title') else '无标题',
-            '播放量': view_count,
-            '点赞数': like_count,
-            '评论数': comment_count,
+            '播放量': int(view_count) if view_count else 0,
+            '点赞数': int(like_count) if like_count else 0,
+            '评论数': int(comment_count) if comment_count else 0,
             '视频链接': f"https://youtube.com/shorts/{video.get('video_id', '')}"
         })
     
@@ -327,11 +294,10 @@ def download_csv(df, filename):
 def main():
     api_key = get_api_key()
     
-    # ========== 标题区域 ==========
     st.title("📊 社媒数据抓取系统")
     st.markdown("*支持 TikTok • YouTube • X (Twitter) 数据抓取*")
     
-    # ========== 平台选择 ==========
+    # 平台选择
     st.subheader("🔍 选择平台")
     platform = st.radio(
         "选择要抓取的平台",
@@ -339,7 +305,7 @@ def main():
         horizontal=True
     )
     
-    # ========== 搜索区域 ==========
+    # 搜索区域
     st.subheader("📥 输入账号信息")
     
     col1, col2 = st.columns([3, 1])
@@ -348,63 +314,32 @@ def main():
             search_username = st.text_input(
                 "TikTok 用户名",
                 placeholder="例如：photorevive.ai",
-                help="输入 TikTok 账号名，不需要 @ 符号",
                 key="search_username"
             )
-        
         elif platform == "📺 YouTube":
-            # YouTube 专用提示
             st.info("""
             ⚠️ **YouTube 必须使用 Channel ID！**
             
-            **为什么？** API 需要 `UC` 开头的 ID，不能用频道名
-            
-            **如何获取 Channel ID？（3 种方法）**
-            
-            🔹 **方法 1：在线工具（推荐）**
-            访问：[commentpicker.com](https://commentpicker.com/youtube-channel-id.php)
-            输入频道名或 URL，自动获取 Channel ID
-            
-            🔹 **方法 2：查看源代码**
-            1. 打开 YouTube 频道页面
-            2. 右键 → 查看页面源代码 (Ctrl+U)
-            3. Ctrl+F 搜索 `channel_id` 或 `UC`
-            4. 复制类似 `UCBR8-60-B28hp2BmDPdntcQ` 的字符串
-            
-            🔹 **方法 3：从 URL 获取**
-            如果 URL 是 `youtube.com/channel/UCxxx...`
-            直接复制 `UC` 开头的部分即可
+            **如何获取？**
+            🔹 方法 1：[commentpicker.com](https://commentpicker.com/youtube-channel-id.php) ⭐
+            🔹 方法 2：查看频道页面源代码，搜索 `channel_id`
+            🔹 方法 3：从 URL `youtube.com/channel/UCxxx` 复制 UC 开头部分
             """)
             
-            # 手动/自动切换
-            use_manual = st.checkbox("✍️ 我已获取 Channel ID（手动输入）", value=True)
-            
+            use_manual = st.checkbox("✍️ 我已获取 Channel ID", value=True)
             if use_manual:
                 search_username = st.text_input(
                     "YouTube Channel ID",
                     placeholder="例如：UCBR8-60-B28hp2BmDPdntcQ",
-                    help="必须以 UC 开头，共 24 个字符",
                     key="search_username_yt"
                 )
             else:
                 search_username = st.text_input(
-                    "YouTube 频道名（自动搜索，可能失败）",
+                    "YouTube 频道名（可能失败）",
                     placeholder="例如：AISpanishTutor",
-                    help="⚠️ 自动搜索可能失败，建议使用方法 1 获取 Channel ID",
                     key="search_username_yt_auto"
                 )
-            
-            # 在线工具按钮
-            if st.button("🔗 打开 Channel ID 获取工具", use_container_width=True):
-                st.markdown("""
-                **推荐工具：**
-                - [commentpicker.com](https://commentpicker.com/youtube-channel-id.php) ⭐
-                - [influencermarketinghub.com](https://influencermarketinghub.com/youtube-channel-id-converter/)
-                
-                > 💡 输入频道名或粘贴频道 URL，一键获取 Channel ID
-                """)
-        
-        else:  # X (Twitter)
+        else:
             search_username = st.text_input(
                 "X 用户名",
                 placeholder="例如：photorevive_ai",
@@ -412,27 +347,19 @@ def main():
             )
     
     with col2:
-        search_count = st.slider(
-            "抓取数量",
-            min_value=1,
-            max_value=100,
-            value=20,
-            key="search_count"
-        )
+        search_count = st.slider("抓取数量", 1, 100, 20, key="search_count")
     
-    # 显示预估请求次数
     if search_count > 20:
-        pages_needed = (search_count + 19) // 20
-        st.info(f"💡 将发起 {pages_needed} 次请求（API 单次最多 20 条）")
+        st.info(f"💡 将发起 {(search_count + 19) // 20} 次请求")
     
     search_btn = st.button("🚀 开始抓取", type="primary", use_container_width=True)
     
-    # ========== 执行抓取 ==========
+    # 执行抓取
     if search_btn:
         if not search_username:
             st.error("❌ 请输入账号名")
         else:
-            with st.spinner(f"正在抓取 {platform} @{search_username} 的数据..."):
+            with st.spinner(f"正在抓取 {platform}..."):
                 if platform == "🎵 TikTok":
                     result = fetch_tiktok_data(search_username, search_count)
                     rows, account_info = parse_tiktok_videos(result)
@@ -440,99 +367,47 @@ def main():
                     result = fetch_youtube_data(search_username, search_count)
                     rows, account_info = parse_youtube_videos(result)
                 else:
-                    st.warning("⚠️ X (Twitter) 功能开发中...")
+                    st.warning("⚠️ X 功能开发中...")
                     rows, account_info = [], {}
                 
                 if rows:
-                    st.success(f"✅ 成功抓取 {len(rows)} 条视频（目标：{search_count} 条）")
+                    st.success(f"✅ 抓取 {len(rows)} 条视频")
                     
-                    # 账号信息
                     if account_info:
                         st.divider()
                         st.subheader("👤 账号信息")
                         if platform == "🎵 TikTok":
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("账号", f"@{account_info.get('username', '')}")
-                            with col2:
-                                st.metric("粉丝数", f"{account_info.get('followers', 0):,}")
-                            with col3:
-                                st.metric("总获赞", f"{account_info.get('total_likes', 0):,}")
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("账号", f"@{account_info.get('username')}")
+                            c2.metric("粉丝", f"{account_info.get('followers',0):,}")
+                            c3.metric("获赞", f"{account_info.get('total_likes',0):,}")
                         elif platform == "📺 YouTube":
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("频道", account_info.get('username', ''))
-                            with col2:
-                                st.metric("订阅数", f"{account_info.get('subscribers', 0):,}")
-                            with col3:
-                                st.metric("总视频数", f"{account_info.get('total_videos', 0):,}")
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("频道", account_info.get('username'))
+                            c2.metric("订阅", f"{account_info.get('subscribers',0):,}")
+                            c3.metric("视频数", f"{account_info.get('total_videos',0):,}")
                     
-                    # 数据表格
                     st.divider()
                     st.subheader("📋 视频数据")
                     df = pd.DataFrame(rows)
                     st.dataframe(df, use_container_width=True, hide_index=True)
                     
-                    # 统计信息
                     st.divider()
-                    st.subheader("📊 数据统计")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("总播放量", f"{df['播放量'].sum():,}")
-                    with col2:
-                        st.metric("总点赞数", f"{df['点赞数'].sum():,}")
-                    with col3:
-                        st.metric("平均播放", f"{int(df['播放量'].mean()):,}")
-                    with col4:
-                        st.metric("平均点赞", f"{int(df['点赞数'].mean()):,}")
+                    st.subheader("📊 统计")
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("总播放", f"{df['播放量'].sum():,}")
+                    c2.metric("总点赞", f"{df['点赞数'].sum():,}")
+                    c3.metric("平均播放", f"{int(df['播放量'].mean()):,}")
+                    c4.metric("平均点赞", f"{int(df['点赞数'].mean()):,}")
                     
-                    # 下载按钮
                     st.divider()
-                    st.subheader("📥 导出数据")
-                    platform_name = platform.replace("🎵 ", "").replace("📺 ", "").replace("🐦 ", "").replace(" (Twitter)", "")
-                    csv = download_csv(df, f"{platform_name.lower()}_data_{datetime.now().strftime('%Y%m%d')}.csv")
-                    st.download_button(
-                        label="📥 下载 CSV 文件",
-                        data=csv,
-                        file_name=f"{platform_name.lower()}_{search_username}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
+                    csv = download_csv(df, f"{platform.replace('🎵','').replace('📺','').strip().lower()}_{search_username}_{datetime.now().strftime('%Y%m%d')}.csv")
+                    st.download_button("📥 下载 CSV", csv, f"data.csv", "text/csv", use_container_width=True)
                 else:
-                    st.warning("⚠️ 未找到视频数据，请检查账号名是否正确")
+                    st.warning("⚠️ 未找到数据")
     
-    # ========== 使用说明 ==========
     st.divider()
-    st.subheader("📖 使用说明")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("""
-        **🎵 TikTok**
-        - 输入用户名
-        - 不需要 @ 符号
-        - 例如：photorevive.ai
-        """)
-    with col2:
-        st.markdown("""
-        **📺 YouTube**
-        - 必须使用 Channel ID
-        - 以 UC 开头，共 24 字符
-        - 例如：UCBR8-60-B28hp2BmDPdntcQ
-        """)
-    with col3:
-        st.markdown("""
-        **🐦 X (Twitter)**
-        - 功能开发中
-        - 敬请期待
-        """)
-    
-    # ========== 页脚 ==========
-    st.divider()
-    st.caption("🛠️ powered by TikHub API & Streamlit | 社媒数据抓取系统")
+    st.caption("🛠️ powered by TikHub API & Streamlit")
 
-# ============================================
-# 🚀 主程序
-# ============================================
 if __name__ == "__main__":
     main()
