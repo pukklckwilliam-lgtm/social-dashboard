@@ -228,54 +228,63 @@ def parse_tiktok_videos(result):
     return rows, account_info
 
 def parse_youtube_videos(result):
-    """解析 YouTube Shorts 数据 - 修复统计字段"""
+    """解析 YouTube Shorts 数据 - 根据实际返回修复"""
     if not result.get('success'):
         return [], {}
     
     video_list = result.get('videos', [])
     account_info = {}
     
-    if video_list and 'channel' in video_list[0]:
-        channel = video_list[0]['channel']
-        account_info = {
-            'username': channel.get('title', ''),
-            'subscribers': channel.get('subscriber_count', 0),
-            'total_videos': channel.get('video_count', 0)
-        }
+    # 尝试获取频道信息
+    if video_list:
+        first = video_list[0]
+        if 'channel' in first:
+            channel = first['channel']
+            account_info = {
+                'username': channel.get('title', ''),
+                'subscribers': channel.get('subscriber_count', 0),
+                'total_videos': channel.get('video_count', 0)
+            }
+        elif first.get('channel_id'):
+            account_info = {
+                'username': '',
+                'channel_id': first.get('channel_id', ''),
+                'subscribers': 0,
+                'total_videos': 0
+            }
     
     rows = []
     for video in video_list:
-        # 🔍 尝试多种可能的统计数据路径
-        stats = video.get('statistics', video.get('stats', {}))
-        
-        # 🔍 直接获取字段（兼容不同 API 返回格式）
-        view_count = (
-            stats.get('view_count') or stats.get('viewCount') or 
-            video.get('view_count') or video.get('viewCount') or 0
-        )
-        like_count = (
-            stats.get('like_count') or stats.get('likeCount') or 
-            video.get('like_count') or video.get('likeCount') or 0
-        )
-        comment_count = (
-            stats.get('comment_count') or stats.get('commentCount') or 
-            video.get('comment_count') or video.get('commentCount') or 0
-        )
-        
-        publish_time = video.get('published_at', '')
-        if publish_time:
+        # 🔍 根据实际返回的字段解析
+        publish_time = video.get('published_time', '') or video.get('published_at', '')
+        if publish_time and publish_time != '':
             try:
-                dt = datetime.fromisoformat(publish_time.replace('Z', '+00:00'))
+                # 尝试多种时间格式
+                if 'T' in publish_time:
+                    dt = datetime.fromisoformat(publish_time.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.strptime(publish_time, '%Y-%m-%d %H:%M:%S')
                 publish_time = dt.strftime('%Y-%m-%d %H:%M')
             except:
                 pass
         
+        # ✅ 使用实际返回的字段名
+        play_count = video.get('number_of_views', 0) or video.get('view_count', 0) or 0
+        like_count = video.get('like_count', 0) or video.get('number_of_likes', 0) or 0
+        comment_count = video.get('comment_count', 0) or video.get('number_of_comments', 0) or 0
+        
+        # 确保转为整数
+        try:
+            play_count = int(play_count)
+        except:
+            play_count = 0
+        
         rows.append({
-            '发布时间': publish_time,
+            '发布时间': publish_time if publish_time else '未知',
             '视频标题': (video.get('title', '')[:100] + '...') if video.get('title') else '无标题',
-            '播放量': int(view_count) if view_count else 0,
-            '点赞数': int(like_count) if like_count else 0,
-            '评论数': int(comment_count) if comment_count else 0,
+            '播放量': play_count,
+            '点赞数': like_count if like_count > 0 else '暂无',  # API 可能不返回
+            '评论数': comment_count if comment_count > 0 else '暂无',  # API 可能不返回
             '视频链接': f"https://youtube.com/shorts/{video.get('video_id', '')}"
         })
     
