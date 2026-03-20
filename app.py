@@ -1,4 +1,4 @@
-# 🎯 社媒数据抓取系统 - TikTok + YouTube 完整版（修复参数）
+# 🎯 社媒数据抓取系统 - TikTok + YouTube 完整版
 import streamlit as st
 import requests
 import pandas as pd
@@ -49,7 +49,7 @@ def get_sec_user_id(username):
     return ''
 
 def fetch_tiktok_data(username, target_count=30):
-    """抓取 TikTok 视频数据 - 4 次循环版"""
+    """抓取 TikTok 视频数据 - 4次循环版（最多80条）"""
     sec_user_id = get_sec_user_id(username)
     if not sec_user_id:
         return {"success": False, "error": "无法获取用户信息"}
@@ -59,7 +59,7 @@ def fetch_tiktok_data(username, target_count=30):
     
     all_videos = []
     cursor = "0"
-    max_loops = 4
+    max_loops = 4  # 4次循环 = 最多80条
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -114,11 +114,10 @@ def fetch_tiktok_data(username, target_count=30):
     return {"success": True, "videos": all_videos[:target_count], "platform": "TikTok"}
 
 # ============================================
-# 📺 YouTube 数据抓取（修复参数版）
+# 📺 YouTube 数据抓取
 # ============================================
 def get_youtube_channel_id(username):
-    """获取 YouTube Channel ID"""
-    # 清理用户名
+    """获取 YouTube Channel ID（自动搜索）"""
     clean_username = username.strip().lstrip('@')
     
     url = "https://api.tikhub.io/api/v1/youtube/web/search_channel"
@@ -138,7 +137,7 @@ def get_youtube_channel_id(username):
     return ''
 
 def fetch_youtube_data(channel_username, target_count=30):
-    """抓取 YouTube Shorts 短视频数据 - 修复参数版"""
+    """抓取 YouTube Shorts 短视频数据 - 4次循环版（最多80条）"""
     
     # 获取 channel_id
     channel_id = channel_username
@@ -146,15 +145,14 @@ def fetch_youtube_data(channel_username, target_count=30):
         channel_id = get_youtube_channel_id(channel_username)
     
     if not channel_id:
-        return {"success": False, "error": "无法找到 YouTube 频道"}
+        return {"success": False, "error": "无法找到 YouTube 频道，请使用 Channel ID"}
     
-    # ✅ Shorts 端点
     url = "https://api.tikhub.io/api/v1/youtube/web/get_channel_short_videos"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     
     all_videos = []
-    continuation_token = None  # ✅ 正确的参数名
-    max_loops = 4
+    continuation_token = None
+    max_loops = 4  # 4次循环 = 最多80条
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -167,7 +165,6 @@ def fetch_youtube_data(channel_username, target_count=30):
             "count": 20
         }
         
-        # ✅ 使用 continuation_token 而不是 next_page_token
         if continuation_token:
             params["continuation_token"] = continuation_token
         
@@ -191,14 +188,10 @@ def fetch_youtube_data(channel_username, target_count=30):
                         status_text.text(f"✅ 已达到目标数量")
                         break
                     
-                    # ✅ 获取 continuation_token
                     continuation_token = data.get('continuation_token', None)
                     if not continuation_token:
                         status_text.text("✅ 已抓取所有可用短视频")
                         break
-                else:
-                    status_text.text(f"❌ API 错误：{result.get('message', '')}")
-                    break
             else:
                 status_text.text(f"❌ HTTP {response.status_code}")
                 break
@@ -326,15 +319,63 @@ def main():
             search_username = st.text_input(
                 "TikTok 用户名",
                 placeholder="例如：photorevive.ai",
+                help="输入 TikTok 账号名，不需要 @ 符号",
                 key="search_username"
             )
+        
         elif platform == "📺 YouTube":
-            search_username = st.text_input(
-                "YouTube 频道名",
-                placeholder="例如：AISpanishTutor 或 @AISpanishTutor",
-                key="search_username_yt"
-            )
-        else:
+            # YouTube 专用提示
+            st.info("""
+            ⚠️ **YouTube 必须使用 Channel ID！**
+            
+            **为什么？** API 需要 `UC` 开头的 ID，不能用频道名
+            
+            **如何获取 Channel ID？（3 种方法）**
+            
+            🔹 **方法 1：在线工具（推荐）**
+            访问：[commentpicker.com](https://commentpicker.com/youtube-channel-id.php)
+            输入频道名或 URL，自动获取 Channel ID
+            
+            🔹 **方法 2：查看源代码**
+            1. 打开 YouTube 频道页面
+            2. 右键 → 查看页面源代码 (Ctrl+U)
+            3. Ctrl+F 搜索 `channel_id` 或 `UC`
+            4. 复制类似 `UCBR8-60-B28hp2BmDPdntcQ` 的字符串
+            
+            🔹 **方法 3：从 URL 获取**
+            如果 URL 是 `youtube.com/channel/UCxxx...`
+            直接复制 `UC` 开头的部分即可
+            """)
+            
+            # 手动/自动切换
+            use_manual = st.checkbox("✍️ 我已获取 Channel ID（手动输入）", value=True)
+            
+            if use_manual:
+                search_username = st.text_input(
+                    "YouTube Channel ID",
+                    placeholder="例如：UCBR8-60-B28hp2BmDPdntcQ",
+                    help="必须以 UC 开头，共 24 个字符",
+                    key="search_username_yt"
+                )
+            else:
+                search_username = st.text_input(
+                    "YouTube 频道名（自动搜索，可能失败）",
+                    placeholder="例如：AISpanishTutor",
+                    help="⚠️ 自动搜索可能失败，建议使用方法 1 获取 Channel ID",
+                    key="search_username_yt_auto"
+                )
+            
+            # 在线工具按钮
+            if st.button("🔗 打开 Channel ID 获取工具", use_container_width=True):
+                st.markdown("""
+                **推荐工具：**
+                - [commentpicker.com](https://commentpicker.com/youtube-channel-id.php) ⭐
+                - [influencermarketinghub.com](https://influencermarketinghub.com/youtube-channel-id-converter/)
+                
+                > 💡 输入频道名或粘贴频道 URL，一键获取 Channel ID
+                """)
+        
+        else:  # X (Twitter)
             search_username = st.text_input(
                 "X 用户名",
                 placeholder="例如：photorevive_ai",
@@ -350,6 +391,7 @@ def main():
             key="search_count"
         )
     
+    # 显示预估请求次数
     if search_count > 20:
         pages_needed = (search_count + 19) // 20
         st.info(f"💡 将发起 {pages_needed} 次请求（API 单次最多 20 条）")
@@ -375,6 +417,7 @@ def main():
                 if rows:
                     st.success(f"✅ 成功抓取 {len(rows)} 条视频（目标：{search_count} 条）")
                     
+                    # 账号信息
                     if account_info:
                         st.divider()
                         st.subheader("👤 账号信息")
@@ -395,11 +438,13 @@ def main():
                             with col3:
                                 st.metric("总视频数", f"{account_info.get('total_videos', 0):,}")
                     
+                    # 数据表格
                     st.divider()
                     st.subheader("📋 视频数据")
                     df = pd.DataFrame(rows)
                     st.dataframe(df, use_container_width=True, hide_index=True)
                     
+                    # 统计信息
                     st.divider()
                     st.subheader("📊 数据统计")
                     col1, col2, col3, col4 = st.columns(4)
@@ -412,6 +457,7 @@ def main():
                     with col4:
                         st.metric("平均点赞", f"{int(df['点赞数'].mean()):,}")
                     
+                    # 下载按钮
                     st.divider()
                     st.subheader("📥 导出数据")
                     platform_name = platform.replace("🎵 ", "").replace("📺 ", "").replace("🐦 ", "").replace(" (Twitter)", "")
@@ -441,9 +487,9 @@ def main():
     with col2:
         st.markdown("""
         **📺 YouTube**
-        - 输入频道名或 @用户名
-        - 例如：AISpanishTutor
-        - 或：@AISpanishTutor
+        - 必须使用 Channel ID
+        - 以 UC 开头，共 24 字符
+        - 例如：UCBR8-60-B28hp2BmDPdntcQ
         """)
     with col3:
         st.markdown("""
@@ -452,6 +498,7 @@ def main():
         - 敬请期待
         """)
     
+    # ========== 页脚 ==========
     st.divider()
     st.caption("🛠️ powered by TikHub API & Streamlit | 社媒数据抓取系统")
 
