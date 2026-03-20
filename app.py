@@ -1,4 +1,4 @@
-# 🎯 社媒数据抓取系统 - 简洁版
+# 🎯 社媒数据抓取系统 - 修复语法错误版
 import streamlit as st
 import requests
 import pandas as pd
@@ -192,3 +192,121 @@ def main():
             max_value=100,
             value=20,
             key="search_count",
+            help="最多 100 条（API 单次最多 20 条）"
+        )
+    
+    # 显示预估请求次数
+    if search_count > 20:
+        pages_needed = (search_count + 19) // 20
+        st.info(f"💡 将发起 {pages_needed} 次请求（API 单次最多 20 条）")
+    
+    search_btn = st.button("🚀 开始抓取", type="primary", use_container_width=True)
+    
+    # 执行搜索
+    if search_btn:
+        if not search_username:
+            st.error("❌ 请输入 TikTok 用户名")
+        else:
+            with st.spinner(f"正在抓取 @{search_username} 的数据..."):
+                result = fetch_tiktok_data_paginated(search_username, search_count)
+                
+                if result['success']:
+                    rows, account_info = parse_tiktok_videos(result)
+                    
+                    if rows:
+                        st.session_state.search_results = rows
+                        st.session_state.search_account_info = account_info
+                        
+                        # 显示抓取结果
+                        st.success(f"✅ 成功抓取 {len(rows)} 条视频（目标：{search_count} 条）")
+                        
+                        # 显示账号信息
+                        if account_info:
+                            st.divider()
+                            st.subheader(f"👤 账号信息")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("账号", f"@{account_info.get('username', '')}")
+                            with col2:
+                                st.metric("粉丝数", f"{account_info.get('followers', 0):,}")
+                            with col3:
+                                st.metric("总获赞", f"{account_info.get('total_likes', 0):,}")
+                        
+                        # 显示数据表格
+                        st.divider()
+                        st.subheader("📋 视频数据")
+                        df = pd.DataFrame(rows)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+                        
+                        # 统计信息
+                        st.divider()
+                        st.subheader("📊 数据统计")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            total_play = df['播放量'].sum()
+                            st.metric("总播放量", f"{total_play:,}")
+                        with col2:
+                            total_like = df['点赞数'].sum()
+                            st.metric("总点赞数", f"{total_like:,}")
+                        with col3:
+                            avg_play = int(df['播放量'].mean())
+                            st.metric("平均播放", f"{avg_play:,}")
+                        with col4:
+                            avg_like = int(df['点赞数'].mean())
+                            st.metric("平均点赞", f"{avg_like:,}")
+                        
+                        # 下载按钮
+                        st.divider()
+                        st.subheader("📥 导出数据")
+                        csv = download_csv(df, f"tiktok_data_{datetime.now().strftime('%Y%m%d')}.csv")
+                        st.download_button(
+                            label="📥 下载 CSV 文件",
+                            data=csv,
+                            file_name=f"tiktok_{account_info.get('username', search_username)}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    else:
+                        st.warning("⚠️ 未找到视频数据，请检查账号名是否正确")
+                        st.session_state.search_results = None
+                else:
+                    st.error(f"❌ 抓取失败：{result.get('error', '未知错误')}")
+                    st.info("💡 请检查：1) 账号名是否正确 2) 账号是否公开 3) API Key 是否有效")
+                    st.session_state.search_results = None
+    
+    # ========== 使用说明 ==========
+    st.divider()
+    st.subheader("📖 使用说明")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("""
+        **1️⃣ 输入账号**
+        - 输入 TikTok 用户名
+        - 不需要 @ 符号
+        - 例如：photorevive.ai
+        """)
+    with col2:
+        st.markdown("""
+        **2️⃣ 选择数量**
+        - 滑动选择抓取数量
+        - 最多 100 条
+        - 超过 20 条会自动分页
+        """)
+    with col3:
+        st.markdown("""
+        **3️⃣ 下载数据**
+        - 抓取完成后显示数据
+        - 点击下载 CSV 按钮
+        - 用 Excel 打开查看
+        """)
+    
+    # ========== 页脚 ==========
+    st.divider()
+    st.caption("🛠️ powered by TikHub API & Streamlit | 社媒数据抓取系统")
+
+# ============================================
+# 🚀 主程序
+# ============================================
+if __name__ == "__main__":
+    main()
