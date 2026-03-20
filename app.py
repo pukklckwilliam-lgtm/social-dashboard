@@ -228,63 +228,65 @@ def parse_tiktok_videos(result):
     return rows, account_info
 
 def parse_youtube_videos(result):
-    """解析 YouTube Shorts 数据 - 根据实际返回修复"""
+    """解析 YouTube Shorts 数据 - 修复时间字段"""
     if not result.get('success'):
         return [], {}
     
     video_list = result.get('videos', [])
     account_info = {}
     
-    # 尝试获取频道信息
-    if video_list:
-        first = video_list[0]
-        if 'channel' in first:
-            channel = first['channel']
-            account_info = {
-                'username': channel.get('title', ''),
-                'subscribers': channel.get('subscriber_count', 0),
-                'total_videos': channel.get('video_count', 0)
-            }
-        elif first.get('channel_id'):
-            account_info = {
-                'username': '',
-                'channel_id': first.get('channel_id', ''),
-                'subscribers': 0,
-                'total_videos': 0
-            }
+    if video_list and 'channel' in video_list[0]:
+        channel = video_list[0]['channel']
+        account_info = {
+            'username': channel.get('title', ''),
+            'subscribers': channel.get('subscriber_count', 0),
+            'total_videos': channel.get('video_count', 0)
+        }
     
     rows = []
     for video in video_list:
-        # 🔍 根据实际返回的字段解析
-        publish_time = video.get('published_time', '') or video.get('published_at', '')
+        # 🔍 尝试所有可能的时间字段
+        publish_time = (
+            video.get('published_time') or 
+            video.get('published_at') or 
+            video.get('publish_time') or
+            video.get('publishDate') or
+            video.get('publishedDate') or
+            video.get('upload_date') or
+            video.get('uploaded_at') or
+            ''
+        )
+        
+        # 如果有时间，格式化它
         if publish_time and publish_time != '':
             try:
-                # 尝试多种时间格式
+                # 尝试 ISO 格式
                 if 'T' in publish_time:
                     dt = datetime.fromisoformat(publish_time.replace('Z', '+00:00'))
+                # 尝试其他格式
                 else:
                     dt = datetime.strptime(publish_time, '%Y-%m-%d %H:%M:%S')
                 publish_time = dt.strftime('%Y-%m-%d %H:%M')
             except:
+                # 如果解析失败，尝试直接显示
                 pass
+        else:
+            # 如果 API 没有返回时间，显示"未知"或当前日期
+            publish_time = "API未返回时间"  # 或者用 datetime.now().strftime('%Y-%m-%d')
         
-        # ✅ 使用实际返回的字段名
+        # 获取播放量
         play_count = video.get('number_of_views', 0) or video.get('view_count', 0) or 0
-        like_count = video.get('like_count', 0) or video.get('number_of_likes', 0) or 0
-        comment_count = video.get('comment_count', 0) or video.get('number_of_comments', 0) or 0
-        
-        # 确保转为整数
         try:
             play_count = int(play_count)
         except:
             play_count = 0
         
         rows.append({
-            '发布时间': publish_time if publish_time else '未知',
+            '发布时间': publish_time,
             '视频标题': (video.get('title', '')[:100] + '...') if video.get('title') else '无标题',
             '播放量': play_count,
-            '点赞数': like_count if like_count > 0 else '暂无',  # API 可能不返回
-            '评论数': comment_count if comment_count > 0 else '暂无',  # API 可能不返回
+            '点赞数': 'API未返回',
+            '评论数': 'API未返回',
             '视频链接': f"https://youtube.com/shorts/{video.get('video_id', '')}"
         })
     
