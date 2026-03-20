@@ -1,4 +1,4 @@
-# 🎯 社媒数据抓取系统 - 修复分页抓取版
+# 🎯 社媒数据抓取系统 - 根据工作流修复版
 import streamlit as st
 import requests
 import pandas as pd
@@ -30,34 +30,58 @@ def get_api_key():
     return st.session_state.get("api_key", API_KEY)
 
 # ============================================
-# 📡 TikTok 数据抓取（修复版）
+# 🔑 获取 sec_user_id
+# ============================================
+def get_sec_user_id(username):
+    """第一步：获取 sec_user_id"""
+    url = "https://api.tikhub.io/api/v1/tiktok/app/v3/get_user_id_and_sec_user_id_by_username"
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    params = {"username": username}
+    
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('code') == 200:
+                sec_user_id = result.get('data', {}).get('sec_user_id', '')
+                return sec_user_id
+    except Exception as e:
+        st.error(f"获取用户ID失败：{e}")
+    
+    return ''
+
+# ============================================
+# 📡 TikTok 数据抓取（根据工作流修复）
 # ============================================
 def fetch_tiktok_data_paginated(username, target_count=30):
-    """分页抓取 TikTok 数据 - 修复版"""
+    """分页抓取 TikTok 数据 - 根据工作流修复版"""
     
+    # 第1步：获取 sec_user_id
+    sec_user_id = get_sec_user_id(username)
+    if not sec_user_id:
+        return {"success": False, "error": "无法获取用户信息，请检查账号名是否正确"}
+    
+    # 第2步：循环抓取视频
     url = "https://api.tikhub.io/api/v1/tiktok/app/v3/fetch_user_post_videos_v2"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     
     all_videos = []
-    cursor = 0
+    cursor = "0"
     max_per_request = 20
-    max_pages = (target_count + max_per_request - 1) // max_per_request
+    max_loops = 3  # 循环3次 = 60条
     
     progress_bar = st.progress(0)
     status_text = st.empty()
-    debug_info = st.empty()
     
-    for page in range(max_pages):
-        status_text.text(f"正在抓取第 {page + 1}/{max_pages} 页...")
+    for loop in range(max_loops):
+        status_text.text(f"正在抓取第 {loop + 1}/{max_loops} 页...")
         
         params = {
-            "unique_id": username,
-            "count": min(max_per_request, target_count - len(all_videos))  # 动态调整数量
+            "sec_user_id": sec_user_id,  # ✅ 关键：用 sec_user_id
+            "count": max_per_request,
+            "max_cursor": cursor,        # ✅ 关键：用 max_cursor
+            "sort_type": 0
         }
-        
-        # 只有第2页及以后才传 cursor
-        if page > 0 and cursor > 0:
-            params["cursor"] = cursor
         
         try:
             response = requests.get(url, params=params, headers=headers, timeout=30)
@@ -65,42 +89,31 @@ def fetch_tiktok_data_paginated(username, target_count=30):
             if response.status_code == 200:
                 result = response.json()
                 if result.get('code') == 200:
-                    video_list = result.get('data', {}).get('aweme_list', [])
-                    
-                    debug_info.text(f"第 {page + 1} 页返回 {len(video_list)} 条视频")
+                    data = result.get('data', {})
+                    video_list = data.get('aweme_list', [])
                     
                     if not video_list:
                         status_text.text("✅ 没有更多视频了")
                         break
                     
-                    # 添加新视频（不去重，直接添加）
                     all_videos.extend(video_list)
                     
                     # 更新进度
-                    progress = min((page + 1) / max_pages, len(all_videos) / target_count)
+                    progress = (loop + 1) / max_loops
                     progress_bar.progress(progress)
                     
-                    # 显示当前进度
-                    status_text.text(f"✅ 已抓取 {len(all_videos)} 条视频（目标：{target_count}）")
+                    status_text.text(f"✅ 已抓取 {len(all_videos)} 条视频")
                     
-                    # 检查是否达到目标
-                    if len(all_videos) >= target_count:
-                        status_text.text(f"✅ 已达到目标数量：{len(all_videos)} 条")
+                    # 检查是否还有更多
+                    if not data.get('has_more'):
+                        status_text.text("✅ 已抓取所有可用视频")
                         break
                     
-                    # 如果返回的视频数少于请求数，说明可能没更多了
-                    if len(video_list) < params["count"]:
-                        status_text.text(f"✅ 已抓取所有可用视频（共 {len(all_videos)} 条）")
+                    # 更新 cursor
+                    cursor = str(data.get('max_cursor', '0'))
+                    if cursor == '0':
                         break
                     
-                    # 获取下一页 cursor
-                    cursor = result.get('data', {}).get('cursor', 0)
-                    
-                    # 如果 cursor 没有变化，说明可能到末尾了
-                    if cursor == 0:
-                        status_text.text("✅ 已到达视频列表末尾")
-                        break
-                        
                 else:
                     status_text.text(f"❌ API 错误：{result.get('message', '')}")
                     break
@@ -113,12 +126,11 @@ def fetch_tiktok_data_paginated(username, target_count=30):
             break
     
     progress_bar.progress(1.0)
-    debug_info.empty()
     status_text.text(f"✅ 完成！共抓取 {len(all_videos)} 条视频")
     
     return {
         "success": True,
-        "videos": all_videos[:target_count],  # 限制在目标数量
+        "videos": all_videos[:target_count] if target_count > 0 else all_videos,
         "total_fetched": len(all_videos)
     }
 
@@ -171,7 +183,7 @@ def download_csv(df, filename):
     return csv
 
 # ============================================
-# 🎨 主界面
+# 🎨 主界面（保持不变）
 # ============================================
 def main():
     api_key = get_api_key()
