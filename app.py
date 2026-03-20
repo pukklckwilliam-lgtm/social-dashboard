@@ -128,7 +128,7 @@ def get_youtube_channel_id(username):
     return ''
 
 def fetch_youtube_data(channel_username, target_count=30):
-    """抓取 YouTube Shorts 数据 - 修复版"""
+    """抓取 YouTube Shorts 数据 - 修复 data 二次解析"""
     
     channel_id = channel_username
     if not channel_id.startswith('UC'):
@@ -137,7 +137,6 @@ def fetch_youtube_data(channel_username, target_count=30):
     if not channel_id:
         return {"success": False, "error": "无法找到 YouTube 频道"}
     
-    # ✅ 修复：去掉 URL 末尾空格
     url = "https://api.tikhub.io/api/v1/youtube/web/get_channel_short_videos"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     
@@ -160,15 +159,16 @@ def fetch_youtube_data(channel_username, target_count=30):
             if response.status_code == 200:
                 result = response.json()
                 
-                # 🔍 调试：显示第一次请求的原始数据结构
-                if loop == 0 and result.get('code') == 200:
-                    video_list = result.get('data', {}).get('videos', [])
-                    if video_list:
-                        st.expander("🔍 查看第一个视频的原始数据结构", expanded=False).json(video_list[0])
-                
                 if result.get('code') == 200:
-                    data = result.get('data', {})
-                    video_list = data.get('videos', [])
+                    # 🔍 关键修复：处理 data 可能是字符串
+                    data = result.get('data')
+                    if isinstance(data, str):
+                        try:
+                            data = json.loads(data)
+                        except:
+                            pass
+                    
+                    video_list = data.get('videos', []) if isinstance(data, dict) else []
                     
                     if not video_list:
                         break
@@ -179,7 +179,7 @@ def fetch_youtube_data(channel_username, target_count=30):
                     if len(all_videos) >= target_count:
                         break
                     
-                    continuation_token = data.get('continuation_token', None)
+                    continuation_token = data.get('continuation_token') if isinstance(data, dict) else None
                     if not continuation_token:
                         break
         except Exception as e:
