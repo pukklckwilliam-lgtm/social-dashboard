@@ -248,7 +248,7 @@ def parse_tiktok_videos(result):
     return rows, account_info
 
 def parse_youtube_videos(result):
-    """解析 YouTube Shorts 数据"""
+    """解析 YouTube Shorts 数据 - 修复版"""
     if not result.get('success'):
         return [], {}
     
@@ -265,7 +265,36 @@ def parse_youtube_videos(result):
     
     rows = []
     for video in video_list:
-        stats = video.get('statistics', {})
+        # 🔍 尝试多种可能的统计数据路径
+        stats = (
+            video.get('statistics', {}) or 
+            video.get('stats', {}) or 
+            video.get('data', {}).get('statistics', {}) or
+            {}
+        )
+        
+        # 🔍 直接获取字段（可能在顶层）
+        view_count = (
+            stats.get('view_count', 0) or 
+            video.get('view_count', 0) or
+            video.get('viewCount', 0) or
+            0
+        )
+        
+        like_count = (
+            stats.get('like_count', 0) or 
+            video.get('like_count', 0) or
+            video.get('likeCount', 0) or
+            0
+        )
+        
+        comment_count = (
+            stats.get('comment_count', 0) or 
+            video.get('comment_count', 0) or
+            video.get('commentCount', 0) or
+            0
+        )
+        
         publish_time = video.get('published_at', '')
         if publish_time:
             try:
@@ -277,9 +306,9 @@ def parse_youtube_videos(result):
         rows.append({
             '发布时间': publish_time,
             '视频标题': (video.get('title', '')[:100] + '...') if video.get('title') else '无标题',
-            '播放量': stats.get('view_count', 0),
-            '点赞数': stats.get('like_count', 0),
-            '评论数': stats.get('comment_count', 0),
+            '播放量': view_count,
+            '点赞数': like_count,
+            '评论数': comment_count,
             '视频链接': f"https://youtube.com/shorts/{video.get('video_id', '')}"
         })
     
