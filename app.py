@@ -128,31 +128,38 @@ def get_youtube_channel_id(username):
     return ''
 
 def fetch_youtube_data(channel_username, target_count=30):
-    """抓取 YouTube Shorts 数据 - 修复 data 二次解析"""
+    """抓取 YouTube 视频数据 - 使用新 API v2"""
     
-    channel_id = channel_username
-    if not channel_id.startswith('UC'):
-        channel_id = get_youtube_channel_id(channel_username)
+    # 清理频道名：确保格式正确
+    clean_channel = channel_username.strip()
+    if not clean_channel.startswith('@') and not clean_channel.startswith('UC'):
+        clean_channel = '@' + clean_channel  # 自动添加 @
     
-    if not channel_id:
-        return {"success": False, "error": "无法找到 YouTube 频道"}
-    
-    url = "https://api.tikhub.io/api/v1/youtube/web/get_channel_short_videos"
+    # ✅ 新 API 端点
+    url = "https://api.tikhub.io/api/v1/youtube/web/get_channel_videos_v2"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     
     all_videos = []
-    continuation_token = None
-    max_loops = 4
+    next_token = None  # ✅ 新分页参数名
+    max_loops = 4  # 4次循环 = 最多80条
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     for loop in range(max_loops):
-        status_text.text(f"正在抓取 YouTube Shorts 第 {loop + 1}/{max_loops} 页...")
+        status_text.text(f"正在抓取 YouTube 第 {loop + 1}/{max_loops} 页...")
         
-        params = {"channel_id": channel_id, "count": 20}
-        if continuation_token:
-            params["continuation_token"] = continuation_token
+        # ✅ 新参数格式
+        params = {
+            "channel_id": clean_channel,      # 支持 @频道名 或 UCxxx
+            "contentType": "shorts",          # 抓取短视频
+            "sortBy": "newest",               # 按最新排序
+            "lang": "zh-CN"                   # 中文结果
+        }
+        
+        # ✅ 分页参数
+        if next_token:
+            params["nextToken"] = next_token
         
         try:
             response = requests.get(url, params=params, headers=headers, timeout=30)
@@ -160,7 +167,7 @@ def fetch_youtube_data(channel_username, target_count=30):
                 result = response.json()
                 
                 if result.get('code') == 200:
-                    # 🔍 关键修复：处理 data 可能是字符串
+                    # 🔍 关键修复：data 可能是 JSON 字符串，需要二次解析
                     data = result.get('data')
                     if isinstance(data, str):
                         try:
@@ -168,26 +175,50 @@ def fetch_youtube_data(channel_username, target_count=30):
                         except:
                             pass
                     
-                    video_list = data.get('videos', []) if isinstance(data, dict) else []
+                    # 获取视频列表（新 API 字段名）
+                    video_list = []
+                    if isinstance(data, dict):
+                        # 尝试多种可能的字段名
+                        video_list = (
+                            data.get('videos', []) or 
+                            data.get('items', []) or 
+                            data.get('videoList', []) or
+                            []
+                        )
                     
                     if not video_list:
+                        status_text.text("✅ 没有更多视频了")
                         break
                     
                     all_videos.extend(video_list)
                     progress_bar.progress((loop + 1) / max_loops)
+                    status_text.text(f"✅ 已抓取 {len(all_videos)} 条视频")
                     
                     if len(all_videos) >= target_count:
+                        status_text.text(f"✅ 已达到目标数量")
                         break
                     
-                    continuation_token = data.get('continuation_token') if isinstance(data, dict) else None
-                    if not continuation_token:
+                    # ✅ 获取下一页 token（新字段名）
+                    next_token = (
+                        data.get('nextToken') or 
+                        data.get('next_page_token') or 
+                        data.get('continuation_token')
+                    )
+                    if not next_token:
+                        status_text.text("✅ 已抓取所有可用视频")
                         break
+                else:
+                    status_text.text(f"❌ API 错误：{result.get('message', '')}")
+                    break
+            else:
+                status_text.text(f"❌ HTTP {response.status_code}")
+                break
         except Exception as e:
             status_text.text(f"❌ 请求异常：{str(e)}")
             break
     
     progress_bar.progress(1.0)
-    status_text.text(f"✅ YouTube Shorts 完成！共抓取 {len(all_videos)} 条短视频")
+    status_text.text(f"✅ YouTube 完成！共抓取 {len(all_videos)} 条视频")
     
     return {"success": True, "videos": all_videos[:target_count], "platform": "YouTube"}
 
@@ -228,65 +259,93 @@ def parse_tiktok_videos(result):
     return rows, account_info
 
 def parse_youtube_videos(result):
-    """解析 YouTube Shorts 数据 - 修复时间字段"""
+    """解析 YouTube v2 API 返回的数据"""
     if not result.get('success'):
         return [], {}
     
     video_list = result.get('videos', [])
     account_info = {}
     
-    if video_list and 'channel' in video_list[0]:
-        channel = video_list[0]['channel']
-        account_info = {
-            'username': channel.get('title', ''),
-            'subscribers': channel.get('subscriber_count', 0),
-            'total_videos': channel.get('video_count', 0)
-        }
+    # 尝试获取频道信息
+    if video_list:
+        first = video_list[0]
+        if 'channel' in first:
+            channel = first['channel']
+            account_info = {
+                'username': channel.get('title', ''),
+                'subscribers': channel.get('subscriber_count', 0),
+                'total_videos': channel.get('video_count', 0)
+            }
+        elif first.get('channel_id'):
+            account_info = {
+                'username': '',
+                'channel_id': first.get('channel_id', ''),
+                'subscribers': 0,
+                'total_videos': 0
+            }
     
     rows = []
     for video in video_list:
-        # 🔍 尝试所有可能的时间字段
+        # 🔍 时间字段：尝试所有可能
         publish_time = (
             video.get('published_time') or 
             video.get('published_at') or 
-            video.get('publish_time') or
             video.get('publishDate') or
             video.get('publishedDate') or
-            video.get('upload_date') or
-            video.get('uploaded_at') or
             ''
         )
         
-        # 如果有时间，格式化它
         if publish_time and publish_time != '':
             try:
-                # 尝试 ISO 格式
                 if 'T' in publish_time:
                     dt = datetime.fromisoformat(publish_time.replace('Z', '+00:00'))
-                # 尝试其他格式
                 else:
                     dt = datetime.strptime(publish_time, '%Y-%m-%d %H:%M:%S')
                 publish_time = dt.strftime('%Y-%m-%d %H:%M')
             except:
-                # 如果解析失败，尝试直接显示
-                pass
+                publish_time = "未知"
         else:
-            # 如果 API 没有返回时间，显示"未知"或当前日期
-            publish_time = "API未返回时间"  # 或者用 datetime.now().strftime('%Y-%m-%d')
+            publish_time = "未知"  # API 可能不返回时间
         
-        # 获取播放量
-        play_count = video.get('number_of_views', 0) or video.get('view_count', 0) or 0
+        # 🔍 播放量：尝试多种字段名
+        play_count = (
+            video.get('number_of_views') or 
+            video.get('view_count') or 
+            video.get('viewCount') or
+            video.get('statistics', {}).get('view_count') or
+            0
+        )
         try:
             play_count = int(play_count)
         except:
             play_count = 0
         
+        # 🔍 点赞/评论：可能不返回，用 0 代替
+        like_count = (
+            video.get('like_count') or 
+            video.get('number_of_likes') or
+            video.get('statistics', {}).get('like_count') or
+            0
+        )
+        comment_count = (
+            video.get('comment_count') or 
+            video.get('number_of_comments') or
+            video.get('statistics', {}).get('comment_count') or
+            0
+        )
+        try:
+            like_count = int(like_count)
+            comment_count = int(comment_count)
+        except:
+            like_count = 0
+            comment_count = 0
+        
         rows.append({
             '发布时间': publish_time,
             '视频标题': (video.get('title', '')[:100] + '...') if video.get('title') else '无标题',
             '播放量': play_count,
-            '点赞数': 'API未返回',
-            '评论数': 'API未返回',
+            '点赞数': like_count,
+            '评论数': comment_count,
             '视频链接': f"https://youtube.com/shorts/{video.get('video_id', '')}"
         })
     
