@@ -1,4 +1,4 @@
-# 🎯 社媒数据抓取系统 - 修复语法错误版
+# 🎯 社媒数据抓取系统 - 修复分页抓取版
 import streamlit as st
 import requests
 import pandas as pd
@@ -30,10 +30,10 @@ def get_api_key():
     return st.session_state.get("api_key", API_KEY)
 
 # ============================================
-# 📡 TikTok 数据抓取（分页版）
+# 📡 TikTok 数据抓取（修复版）
 # ============================================
 def fetch_tiktok_data_paginated(username, target_count=30):
-    """分页抓取 TikTok 数据"""
+    """分页抓取 TikTok 数据 - 修复版"""
     
     url = "https://api.tikhub.io/api/v1/tiktok/app/v3/fetch_user_post_videos_v2"
     headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -45,15 +45,17 @@ def fetch_tiktok_data_paginated(username, target_count=30):
     
     progress_bar = st.progress(0)
     status_text = st.empty()
+    debug_info = st.empty()
     
     for page in range(max_pages):
         status_text.text(f"正在抓取第 {page + 1}/{max_pages} 页...")
         
         params = {
             "unique_id": username,
-            "count": max_per_request
+            "count": min(max_per_request, target_count - len(all_videos))  # 动态调整数量
         }
         
+        # 只有第2页及以后才传 cursor
         if page > 0 and cursor > 0:
             params["cursor"] = cursor
         
@@ -65,37 +67,40 @@ def fetch_tiktok_data_paginated(username, target_count=30):
                 if result.get('code') == 200:
                     video_list = result.get('data', {}).get('aweme_list', [])
                     
+                    debug_info.text(f"第 {page + 1} 页返回 {len(video_list)} 条视频")
+                    
                     if not video_list:
                         status_text.text("✅ 没有更多视频了")
                         break
                     
-                    # 去重
-                    new_videos = []
-                    existing_ids = {v.get('aweme_id') for v in all_videos}
-                    for video in video_list:
-                        video_id = video.get('aweme_id')
-                        if video_id and video_id not in existing_ids:
-                            new_videos.append(video)
-                            existing_ids.add(video_id)
-                    
-                    all_videos.extend(new_videos)
+                    # 添加新视频（不去重，直接添加）
+                    all_videos.extend(video_list)
                     
                     # 更新进度
                     progress = min((page + 1) / max_pages, len(all_videos) / target_count)
                     progress_bar.progress(progress)
                     
-                    # 检查是否还需要继续
-                    if len(video_list) < max_per_request:
+                    # 显示当前进度
+                    status_text.text(f"✅ 已抓取 {len(all_videos)} 条视频（目标：{target_count}）")
+                    
+                    # 检查是否达到目标
+                    if len(all_videos) >= target_count:
+                        status_text.text(f"✅ 已达到目标数量：{len(all_videos)} 条")
+                        break
+                    
+                    # 如果返回的视频数少于请求数，说明可能没更多了
+                    if len(video_list) < params["count"]:
                         status_text.text(f"✅ 已抓取所有可用视频（共 {len(all_videos)} 条）")
                         break
                     
                     # 获取下一页 cursor
                     cursor = result.get('data', {}).get('cursor', 0)
                     
-                    # 已达到目标数量
-                    if len(all_videos) >= target_count:
-                        status_text.text(f"✅ 已抓取 {len(all_videos)} 条视频")
+                    # 如果 cursor 没有变化，说明可能到末尾了
+                    if cursor == 0:
+                        status_text.text("✅ 已到达视频列表末尾")
                         break
+                        
                 else:
                     status_text.text(f"❌ API 错误：{result.get('message', '')}")
                     break
@@ -108,11 +113,12 @@ def fetch_tiktok_data_paginated(username, target_count=30):
             break
     
     progress_bar.progress(1.0)
+    debug_info.empty()
     status_text.text(f"✅ 完成！共抓取 {len(all_videos)} 条视频")
     
     return {
         "success": True,
-        "videos": all_videos[:target_count],
+        "videos": all_videos[:target_count],  # 限制在目标数量
         "total_fetched": len(all_videos)
     }
 
